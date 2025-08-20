@@ -1,0 +1,31 @@
+# --- PyTorch (CUDA 12.6 전용 빌드) ---
+# https://pytorch.org/get-started/locally/ 하드웨어에 맞는 버전 확인
+torch==2.8.0+cu126
+--extra-index-url https://download.pytorch.org/whl/cu126
+
+# --- API 서버 / 런타임 ---
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+pydantic==2.11.3
+python-dotenv==1.1.1
+
+# --- LangChain / LangGraph 코어 ---
+langchain==0.3.27
+langgraph==0.2.60
+
+# --- LangChain 통합 패키지 ---
+langchain-openai==0.3.30
+langchain-chroma==0.2.5
+langchain-huggingface==0.3.1
+langchain-text-splitters==0.3.9
+
+# --- HF 스택 / 토크나이저 ---
+transformers==4.55.2
+tiktoken==0.11.0
+
+# --- 수치/ML 기본 ---
+numpy>=2.1,<2.4
+
+# --- (옵션) ---
+graphviz>=0.20
+# pyppeteer>=2.0
