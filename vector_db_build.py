@@ -468,7 +468,7 @@ class VectorDBBuilder:
 def main() -> None:
     """메인 실행 함수"""
     # 설정
-    documents_folder = "./datasets/v4"  # 마크다운 파일들이 있는 폴더
+    documents_folder = "./data"  # 마크다운 파일들이 있는 폴더
     embedding_model = "nlpai-lab/KURE-v1"  # 임베딩 모델
     chromadb_path = f"./chromadb/v2/{embedding_model}"  # 벡터DB 저장 경로
     chunk_size = 500  # 텍스트 조각 크기

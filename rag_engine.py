@@ -20,7 +20,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import ChatOpenAI
 
 from langgraph.graph import StateGraph, START, END
-from vector_db_build_v5 import VectorDBBuilder  # 인덱스 없을 때 빌드용
+from vector_db_build import VectorDBBuilder  # 인덱스 없을 때 빌드용
 
 # ----------------------
 # Config & clients
