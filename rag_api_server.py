@@ -1,35 +1,40 @@
+# rag_api_server.py (refactored full)
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from typing import List, Optional, AsyncGenerator
+from typing import Optional, AsyncGenerator
 import asyncio
-
 import time
 import uuid
-import os
 import json
 
-# ------------------------------------------------------------------
-# FastAPI 앱 설정
-# ------------------------------------------------------------------
+# === import shared models & utils ===
+from api_models import (
+    ChatRequest,
+    ChatResponse,
+    ChatResponseChoice,
+    ChatResponseMessage,
+    Usage,
+    Message,
+    SimpleAskRequest,
+)  # 스키마 단일 출처  :contentReference[oaicite:9]{index=9}
+from utils import count_tokens  # 중복 제거  :contentReference[oaicite:10]{index=10}
+from rag_config import (
+    ALLOW_ORIGINS as allow_origins,
+    API_HOST,
+    API_PORT,
+)  # CORS/서버 설정  :contentReference[oaicite:11]{index=11}
+
+# ------------------------------------------------------------------------------
+# FastAPI App
+# ------------------------------------------------------------------------------
 app = FastAPI(
     title="RAG API Server",
     description="FastAPI로 제공하는 RAG(검색증강생성) 질문-답변 서비스",
-    version="0.2.3",
+    version="0.3.0",
 )
 
-# ------------------------------------------------------------------
-# CORS (OpenWebUI 등 브라우저 클라이언트 허용)
-# ------------------------------------------------------------------
-default_origins = ["http://localhost:8080", "http://127.0.0.1:8080"]
-env_origins = os.getenv("OPENWEBUI_ORIGINS", "")
-allow_origins = (
-    [o.strip() for o in env_origins.split(",") if o.strip()]
-    if env_origins
-    else default_origins
-)
-
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,
@@ -38,10 +43,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# ------------------------------------------------------------------
-# RAG 엔진 지연 로딩
-# ------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# Lazy-load RAG Engine
+# ------------------------------------------------------------------------------
 _rag_engine = None
 _rag_app = None
 
@@ -51,7 +55,10 @@ def get_rag_engine():
     global _rag_engine, _rag_app
     if _rag_engine is None:
         print("[INFO] Loading RAG engine (first request)...")
-        from rag_engine_v3 import answer_question_graph, app as rag_app
+        from rag_engine import (
+            answer_question_graph,
+            app as rag_app,
+        )  # 엔진 단일 출처  :contentReference[oaicite:12]{index=12}
 
         _rag_engine = answer_question_graph
         _rag_app = rag_app
@@ -59,100 +66,33 @@ def get_rag_engine():
     return _rag_engine, _rag_app
 
 
-# ------------------------------------------------------------------
-# OpenAI 호환 메시지 포맷
-# ------------------------------------------------------------------
-class Message(BaseModel):
-    role: str
-    content: str
-
-
-class ChatRequest(BaseModel):
-    model: Optional[str] = "rag-gpt"
-    messages: List[Message]
-    temperature: Optional[float] = 0
-    max_tokens: Optional[int] = None
-    stream: Optional[bool] = False
-
-
-class Usage(BaseModel):
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    total_tokens: int = 0
-
-
-class ChatResponseMessage(BaseModel):
-    role: str = "assistant"
-    content: str
-
-
-class ChatResponseChoice(BaseModel):
-    index: int = 0
-    message: ChatResponseMessage
-    finish_reason: str = "stop"
-
-
-class ChatResponse(BaseModel):
-    id: str
-    object: str = "chat.completion"
-    created: int
-    model: str = "rag-gpt"
-    choices: List[ChatResponseChoice]
-    usage: Usage
-
-
-# ------------------------------------------------------------------
-# 토큰 카운트
-# ------------------------------------------------------------------
-def count_tokens(text: str, model: str = "gpt-4o") -> int:
-    try:
-        import tiktoken
-
-        enc = tiktoken.encoding_for_model(model)
-        return len(enc.encode(text or ""))
-    except Exception:
-        return len((text or "").split())
-
-
-# ------------------------------------------------------------------
-# 스트리밍 답변 생성기
-# ------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# Streaming generator (server-sent events style)
+# ------------------------------------------------------------------------------
 async def stream_rag_answer(question: str) -> AsyncGenerator[str, None]:
     """RAG 답변을 토큰 단위로 스트리밍"""
     try:
-        # RAG 엔진 지연 로딩
         answer_func, rag_app = get_rag_engine()
-
-        # RAG 그래프 실행하여 전체 답변 생성
         result = rag_app.invoke({"question": question})
         answer = result.get("answer", "죄송합니다. 답변을 생성할 수 없습니다.")
 
-        # 답변을 토큰 단위로 분할하여 스트리밍
+        # 간단 토큰 스트리밍
         words = answer.split()
-        for i, word in enumerate(words):
-            # 마지막 단어가 아니면 공백 추가
-            if i < len(words) - 1:
-                yield word + " "
-            else:
-                yield word
-
-            # 스트리밍 효과를 위한 약간의 지연
-            await asyncio.sleep(0.02)  # 20ms 지연
-
+        for i, w in enumerate(words):
+            yield (w + " ") if i < len(words) - 1 else w
+            await asyncio.sleep(0.02)
     except Exception as e:
-        error_msg = f"답변 생성 중 오류가 발생했습니다: {str(e)}"
-        words = error_msg.split()
-        for i, word in enumerate(words):
-            if i < len(words) - 1:
-                yield word + " "
-            else:
-                yield word
+        # 에러도 동일 포맷으로 스트리밍
+        msg = f"답변 생성 중 오류가 발생했습니다: {str(e)}"
+        words = msg.split()
+        for i, w in enumerate(words):
+            yield (w + " ") if i < len(words) - 1 else w
             await asyncio.sleep(0.02)
 
 
-# ------------------------------------------------------------------
-# OpenAI Chat Completions (비스트리밍 + 스트리밍)
-# ------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# OpenAI Chat Completions (stream / non-stream)
+# ------------------------------------------------------------------------------
 @app.post("/v1/chat/completions", response_model=ChatResponse)
 async def chat_completions(
     request: ChatRequest, authorization: Optional[str] = Header(None)
@@ -163,7 +103,7 @@ async def chat_completions(
             raise HTTPException(status_code=400, detail="No user message found.")
         question = user_messages[-1]
 
-        # 스트리밍 처리
+        # --- streaming ---
         if request.stream:
 
             async def sse_generator():
@@ -171,7 +111,7 @@ async def chat_completions(
                 resp_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
                 model_id = request.model or "rag-gpt"
 
-                # 1. role delta 전송
+                # 1) role delta
                 chunk_role = {
                     "id": resp_id,
                     "object": "chat.completion.chunk",
@@ -187,7 +127,7 @@ async def chat_completions(
                 }
                 yield f"data: {json.dumps(chunk_role, ensure_ascii=False)}\n\n"
 
-                # 2. 토큰 단위로 content 스트리밍
+                # 2) token deltas
                 async for token in stream_rag_answer(question):
                     chunk_content = {
                         "id": resp_id,
@@ -204,19 +144,13 @@ async def chat_completions(
                     }
                     yield f"data: {json.dumps(chunk_content, ensure_ascii=False)}\n\n"
 
-                # 3. 종료 신호
+                # 3) finish
                 chunk_finish = {
                     "id": resp_id,
                     "object": "chat.completion.chunk",
                     "created": created_ts,
                     "model": model_id,
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {},
-                            "finish_reason": "stop",
-                        }
-                    ],
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
                 }
                 yield f"data: {json.dumps(chunk_finish, ensure_ascii=False)}\n\n"
                 yield "data: [DONE]\n\n"
@@ -227,11 +161,11 @@ async def chat_completions(
                 headers={
                     "Cache-Control": "no-cache",
                     "Connection": "keep-alive",
-                    "X-Accel-Buffering": "no",  # nginx 버퍼링 비활성화
+                    "X-Accel-Buffering": "no",
                 },
             )
 
-        # 비스트리밍 처리
+        # --- non-stream ---
         answer_func, _ = get_rag_engine()
         answer = answer_func(question) or "죄송합니다. 답변을 생성할 수 없습니다."
 
@@ -269,50 +203,42 @@ async def chat_completions(
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
-# ------------------------------------------------------------------
-# 간단한 질문-답변 엔드포인트 (테스트용) - 스트리밍 지원 추가
-# ------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# Simple Ask (테스트용, stream 지원)
+# ------------------------------------------------------------------------------
 @app.post("/api/ask")
-async def simple_ask(question: dict):
+async def simple_ask(body: SimpleAskRequest):
     try:
-        if "question" not in question:
-            raise HTTPException(status_code=400, detail="Question field required")
-
-        # 스트리밍 요청 확인
-        if question.get("stream", False):
+        if body.stream:
 
             async def simple_sse_generator():
-                async for token in stream_rag_answer(question["question"]):
+                async for token in stream_rag_answer(body.question):
                     yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
                 yield "data: [DONE]\n\n"
 
             return StreamingResponse(
                 simple_sse_generator(),
                 media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                },
+                headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
             )
 
-        # 비스트리밍
         answer_func, _ = get_rag_engine()
-        answer = answer_func(question["question"])
-        return {"question": question["question"], "answer": answer, "status": "success"}
+        answer = answer_func(body.question)
+        return {"question": body.question, "answer": answer, "status": "success"}
 
     except Exception as e:
         print(f"Simple API 오류: {e}")
         return {
-            "question": question.get("question", ""),
+            "question": body.question,
             "answer": "답변 생성 중 오류가 발생했습니다.",
             "status": "error",
             "error": str(e),
         }
 
 
-# ------------------------------------------------------------------
-# 헬스체크 & 모델 목록
-# ------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# Health / Models / Status
+# ------------------------------------------------------------------------------
 @app.get("/")
 def root():
     return {"msg": "RAG API is running.", "status": "healthy"}
@@ -333,9 +259,6 @@ def list_models():
     }
 
 
-# ------------------------------------------------------------------
-# 상태 확인 엔드포인트 추가
-# ------------------------------------------------------------------
 @app.get("/api/status")
 def get_status():
     """RAG 엔진 및 리랭커 상태 확인"""
@@ -343,14 +266,13 @@ def get_status():
         if _rag_engine is None:
             return {"rag_loaded": False, "reranker_status": "not_loaded"}
 
-        # RAG 엔진이 로드된 경우 리랭커 상태 확인
-        from rag_engine_v3 import get_reranker_status
-
-        reranker_status = get_reranker_status()
+        from rag_engine import (
+            get_reranker_status,
+        )  # 상태 조회 단일 출처  :contentReference[oaicite:13]{index=13}
 
         return {
             "rag_loaded": True,
-            "reranker_status": reranker_status,
+            "reranker_status": get_reranker_status(),
             "status": "ready",
         }
     except Exception as e:
@@ -360,11 +282,6 @@ def get_status():
 if __name__ == "__main__":
     import uvicorn
 
-    # reload=False로 설정하여 중복 로드 방지
     uvicorn.run(
-        "rag_api_server:app",
-        host="0.0.0.0",
-        port=8910,
-        reload=False,  # 개발 중이 아니라면 False로 설정
-        workers=1,  # 단일 워커로 제한
+        "rag_api_server:app", host=API_HOST, port=API_PORT, reload=False, workers=1
     )
