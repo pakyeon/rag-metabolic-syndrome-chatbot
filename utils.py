@@ -14,6 +14,15 @@ def set_global_seed(seed: int = 1) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
+def choose_torch_dtype():
+    """사용 가능한 최적의 torch dtype을 선택합니다."""
+    if torch.cuda.is_available():
+        if hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported():
+            return torch.bfloat16
+        return torch.float16
+    return torch.float32
+
+
 def count_tokens(text: str, model: str = "gpt-4o") -> int:
     """토큰 수를 계산합니다."""
     try:

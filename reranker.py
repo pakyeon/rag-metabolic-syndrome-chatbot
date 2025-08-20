@@ -1,6 +1,7 @@
 import torch
 import threading
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from utils import choose_torch_dtype
 
 
 class RerankerSingleton:
@@ -31,17 +32,6 @@ class RerankerSingleton:
                     self._loading = False
                     RerankerSingleton._initialized = True
 
-    def _choose_torch_dtype(self):
-        """사용 가능한 최적의 torch dtype을 선택합니다."""
-        if torch.cuda.is_available():
-            if (
-                hasattr(torch.cuda, "is_bf16_supported")
-                and torch.cuda.is_bf16_supported()
-            ):
-                return torch.bfloat16
-            return torch.float16
-        return torch.float32
-
     def ensure_loaded(self):
         """리랭커 모델을 지연 로딩합니다 (Thread-safe)."""
         if self.model is not None and self.tokenizer is not None:
@@ -68,7 +58,7 @@ class RerankerSingleton:
                     f"[INFO] 모델 로드 전 GPU 메모리: {torch.cuda.memory_allocated() / 1024**3:.2f}GB"
                 )
 
-            dtype = self._choose_torch_dtype()
+            dtype = choose_torch_dtype()
             model_name = "Qwen/Qwen3-Reranker-0.6B"
 
             self.tokenizer = AutoTokenizer.from_pretrained(
