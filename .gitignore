@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+*.pyo
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# LLM 관련 캐시 및 출력
+logs/
+checkpoints/
+runs/
+output/
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.h5
+
+# HuggingFace Transformers
+*.log
+*.tfevents.*
+.cache/
+*.ds_store
+*.tar.gz
+*.zip
+
+# Datasets (특히 로컬에 다운로드한 경우)
+data/
+datasets/
+*.jsonl
+*.csv
+*.tsv
+
+# Tokenizers & Vocab
+tokenizer_config.json
+tokenizer.json
+vocab.txt
+merges.txt
+special_tokens_map.json
+
+# 환경 변수 설정
+.env
+
+# Weights & Biases
+wandb/
+
+# IDE 설정
+.vscode/
+.idea/
+
+# Jupyter 설정
+.ipython/
+.jupyter/
+
+# 시스템 파일
+.DS_Store
+Thumbs.db
