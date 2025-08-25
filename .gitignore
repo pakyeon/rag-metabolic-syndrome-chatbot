@@ -43,6 +43,7 @@ datasets/
 *.jsonl
 *.csv
 *.tsv
+chromadb/
 
 # Tokenizers & Vocab
 tokenizer_config.json
