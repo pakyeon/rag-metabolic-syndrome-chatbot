@@ -38,7 +38,7 @@ output/
 *.zip
 
 # Datasets (특히 로컬에 다운로드한 경우)
-data/
+*data/
 datasets/
 *.jsonl
 *.csv
