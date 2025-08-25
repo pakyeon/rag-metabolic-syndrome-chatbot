@@ -17,13 +17,13 @@ from api_models import (
     Usage,
     Message,
     SimpleAskRequest,
-)  # 스키마 단일 출처  :contentReference[oaicite:9]{index=9}
-from utils import count_tokens  # 중복 제거  :contentReference[oaicite:10]{index=10}
+)
+from utils import count_tokens
 from config import (
     ALLOW_ORIGINS as allow_origins,
     API_HOST,
     API_PORT,
-)  # CORS/서버 설정  :contentReference[oaicite:11]{index=11}
+)
 
 # ------------------------------------------------------------------------------
 # FastAPI App
@@ -58,7 +58,7 @@ def get_rag_engine():
         from engine import (
             answer_question_graph,
             app as rag_app,
-        )  # 엔진 단일 출처  :contentReference[oaicite:12]{index=12}
+        )
 
         _rag_engine = answer_question_graph
         _rag_app = rag_app
@@ -80,14 +80,14 @@ async def stream_rag_answer(question: str) -> AsyncGenerator[str, None]:
         words = answer.split()
         for i, w in enumerate(words):
             yield (w + " ") if i < len(words) - 1 else w
-            await asyncio.sleep(0.02)
+            await asyncio.sleep(0.04)
     except Exception as e:
         # 에러도 동일 포맷으로 스트리밍
         msg = f"답변 생성 중 오류가 발생했습니다: {str(e)}"
         words = msg.split()
         for i, w in enumerate(words):
             yield (w + " ") if i < len(words) - 1 else w
-            await asyncio.sleep(0.02)
+            await asyncio.sleep(0.04)
 
 
 # ------------------------------------------------------------------------------
@@ -268,7 +268,7 @@ def get_status():
 
         from engine import (
             get_reranker_status,
-        )  # 상태 조회 단일 출처  :contentReference[oaicite:13]{index=13}
+        )
 
         return {
             "rag_loaded": True,
@@ -282,6 +282,4 @@ def get_status():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(
-        "rag_api_server:app", host=API_HOST, port=API_PORT, reload=False, workers=1
-    )
+    uvicorn.run("api_server:app", host=API_HOST, port=API_PORT, reload=False, workers=1)
