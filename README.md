@@ -55,7 +55,18 @@ pip install -r requirements.txt
 
 ```
 sudo vim .env
-# 이후 OPENAI_API_KEY="sk-..." 작성
+
+# 필수
+# OPENAI_API_KEY="sk-..."
+
+# 선택
+# RAG_LLM_MODEL="gpt-4o" : 답변(추론) 모델
+# RAG_EMBED_MODEL="nlpai-lab/KURE-v1" : 임베딩 모델
+# DETECT_LLM_MODEL="gpt-5-nano" : 질문 분류 모델
+# RAG_LLM_TEMPERATURE=0.2 : 답변(추론) 모델 temperature 값
+# RAG_TOP_K=5 : 모델에게 입력되는 문서의 개수
+# RAG_RERANK_TOP_K=20 : 리랭커 모델에게 입력되는 문서의 개수
+# RAG_USE_RERANK=0 : 0 or 1 , 0일 경우 리랭커 모델 사용 x
 ```
 
 ```
