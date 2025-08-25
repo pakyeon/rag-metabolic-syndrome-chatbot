@@ -19,7 +19,7 @@ from api_models import (
     SimpleAskRequest,
 )  # 스키마 단일 출처  :contentReference[oaicite:9]{index=9}
 from utils import count_tokens  # 중복 제거  :contentReference[oaicite:10]{index=10}
-from rag_config import (
+from config import (
     ALLOW_ORIGINS as allow_origins,
     API_HOST,
     API_PORT,
@@ -55,7 +55,7 @@ def get_rag_engine():
     global _rag_engine, _rag_app
     if _rag_engine is None:
         print("[INFO] Loading RAG engine (first request)...")
-        from rag_engine import (
+        from engine import (
             answer_question_graph,
             app as rag_app,
         )  # 엔진 단일 출처  :contentReference[oaicite:12]{index=12}
@@ -266,7 +266,7 @@ def get_status():
         if _rag_engine is None:
             return {"rag_loaded": False, "reranker_status": "not_loaded"}
 
-        from rag_engine import (
+        from engine import (
             get_reranker_status,
         )  # 상태 조회 단일 출처  :contentReference[oaicite:13]{index=13}
 

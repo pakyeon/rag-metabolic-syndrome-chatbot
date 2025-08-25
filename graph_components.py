@@ -6,14 +6,12 @@ from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
-import rag_config
+import config
 from reranker import reranker
 
 # --- LLM Clients ---
-llm = ChatOpenAI(
-    model_name=rag_config.LLM_MODEL, temperature=rag_config.LLM_TEMPERATURE
-)
-detect_llm = ChatOpenAI(model_name=rag_config.DETECT_LLM_MODEL, temperature=0)
+llm = ChatOpenAI(model_name=config.LLM_MODEL, temperature=config.LLM_TEMPERATURE)
+detect_llm = ChatOpenAI(model_name=config.DETECT_LLM_MODEL, temperature=0)
 
 
 # --- State ---
@@ -46,7 +44,7 @@ def n_retrieve(state: RAGState, db) -> RAGState:
     q = state["question"]
     try:
         results_with_scores = db.similarity_search_with_relevance_scores(
-            q, k=rag_config.TOP_K
+            q, k=config.TOP_K
         )
         if results_with_scores:
             docs, scores = zip(*results_with_scores)
@@ -54,7 +52,7 @@ def n_retrieve(state: RAGState, db) -> RAGState:
         return {"raw_docs": [], "scores": []}
     except Exception:
         # relevance score를 지원하지 않는 일부 ChromaDB 버전을 위한 폴백
-        docs = db.similarity_search(q, k=rag_config.TOP_K)
+        docs = db.similarity_search(q, k=config.TOP_K)
         return {"raw_docs": docs, "scores": []}
 
 
@@ -137,7 +135,7 @@ def n_rerank(state: RAGState) -> RAGState:
     scored = state.get("scored", [])
     if not scored:
         return {"reranked": []}
-    if not rag_config.RAG_USE_RERANK:
+    if not config.RAG_USE_RERANK:
         return {"reranked": scored[:5]}
 
     reranked_docs = _rerank_docs(state["question"], scored, top_k=min(5, len(scored)))

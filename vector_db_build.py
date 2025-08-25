@@ -15,7 +15,7 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document
 
 from utils import set_global_seed, get_directory_size
-import rag_config
+import config
 
 # 로깅 설정
 logging.basicConfig(
@@ -295,30 +295,30 @@ def main():
     set_global_seed(1)
     parser = argparse.ArgumentParser(description="벡터 DB 빌드 스크립트")
     parser.add_argument(
-        "--docs-folder", default=rag_config.DOCUMENTS_FOLDER, help="문서 폴더 경로"
+        "--docs-folder", default=config.DOCUMENTS_FOLDER, help="문서 폴더 경로"
     )
     parser.add_argument(
-        "--embed-model", default=rag_config.EMBED_MODEL, help="임베딩 모델"
+        "--embed-model", default=config.EMBED_MODEL, help="임베딩 모델"
     )
     parser.add_argument(
         "--db-path", default=None, help="ChromaDB 저장 경로 (기본값: rag_config 기반)"
     )
     parser.add_argument(
-        "--chunk-size", type=int, default=rag_config.CHUNK_SIZE, help="청크 크기"
+        "--chunk-size", type=int, default=config.CHUNK_SIZE, help="청크 크기"
     )
     parser.add_argument(
-        "--chunk-overlap", type=int, default=rag_config.CHUNK_OVERLAP, help="청크 겹침"
+        "--chunk-overlap", type=int, default=config.CHUNK_OVERLAP, help="청크 겹침"
     )
     args = parser.parse_args()
 
-    db_path = args.db_path or os.path.join(rag_config.CHROMA_DIR_BASE, args.embed_model)
+    db_path = args.db_path or os.path.join(config.CHROMA_DIR_BASE, args.embed_model)
 
     builder = VectorDBBuilder(
         embedding_model_name=args.embed_model,
         chromadb_path=db_path,
-        min_content_length=rag_config.MIN_CONTENT_LENGTH,
-        min_chunk_size=rag_config.MIN_CHUNK_SIZE,
-        max_merge_size=rag_config.MAX_MERGE_SIZE,
+        min_content_length=config.MIN_CONTENT_LENGTH,
+        min_chunk_size=config.MIN_CHUNK_SIZE,
+        max_merge_size=config.MAX_MERGE_SIZE,
     )
     if builder.build_from_folder(args.docs_folder, args.chunk_size, args.chunk_overlap):
         logger.info("\n=== DB 정보 ===")

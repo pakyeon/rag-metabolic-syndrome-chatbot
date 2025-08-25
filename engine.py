@@ -12,7 +12,7 @@ from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langgraph.graph import StateGraph, START, END
 
-import rag_config
+import config
 from reranker import reranker
 from vector_db_build import VectorDBBuilder
 from graph_components import (
@@ -32,12 +32,10 @@ def load_or_build_db() -> Chroma:
     """벡터 DB를 로드하거나, 없으면 새로 빌드합니다."""
     try:
         embeddings = HuggingFaceEmbeddings(
-            model_name=rag_config.EMBED_MODEL,
+            model_name=config.EMBED_MODEL,
             encode_kwargs={"normalize_embeddings": True},
         )
-        db = Chroma(
-            persist_directory=rag_config.CHROMA_DIR, embedding_function=embeddings
-        )
+        db = Chroma(persist_directory=config.CHROMA_DIR, embedding_function=embeddings)
         if not db._collection.count():
             raise ValueError("VectorDB is empty.")
         print("[INFO] VectorDB is ready.")
@@ -46,25 +44,25 @@ def load_or_build_db() -> Chroma:
         print(f"[WARN] VectorDB load failed: {e}. Building a new one.")
         try:
             builder = VectorDBBuilder(
-                embedding_model_name=rag_config.EMBED_MODEL,
-                chromadb_path=rag_config.CHROMA_DIR,
-                min_content_length=rag_config.MIN_CONTENT_LENGTH,
-                min_chunk_size=rag_config.MIN_CHUNK_SIZE,
-                max_merge_size=rag_config.MAX_MERGE_SIZE,
+                embedding_model_name=config.EMBED_MODEL,
+                chromadb_path=config.CHROMA_DIR,
+                min_content_length=config.MIN_CONTENT_LENGTH,
+                min_chunk_size=config.MIN_CHUNK_SIZE,
+                max_merge_size=config.MAX_MERGE_SIZE,
             )
             if not builder.build_from_folder(
-                rag_config.DOCUMENTS_FOLDER,
-                rag_config.CHUNK_SIZE,
-                rag_config.CHUNK_OVERLAP,
+                config.DOCUMENTS_FOLDER,
+                config.CHUNK_SIZE,
+                config.CHUNK_OVERLAP,
             ):
                 raise RuntimeError("VectorDB build failed")
 
             embeddings = HuggingFaceEmbeddings(
-                model_name=rag_config.EMBED_MODEL,
+                model_name=config.EMBED_MODEL,
                 encode_kwargs={"normalize_embeddings": True},
             )
             return Chroma(
-                persist_directory=rag_config.CHROMA_DIR, embedding_function=embeddings
+                persist_directory=config.CHROMA_DIR, embedding_function=embeddings
             )
         except Exception as build_err:
             print(f"[ERROR] VectorDB build error: {build_err}", file=sys.stderr)
@@ -123,7 +121,7 @@ def answer_question_graph(question: str) -> str:
 def get_reranker_status() -> dict:
     """Reranker의 현재 상태를 반환합니다."""
     return {
-        "enabled": rag_config.RAG_USE_RERANK,
+        "enabled": config.RAG_USE_RERANK,
         "loaded": reranker.is_loaded(),
         "model_device": (
             str(reranker.model.device) if reranker.is_loaded() else "Not loaded"
@@ -167,9 +165,9 @@ def main():
     args = parser.parse_args()
 
     if args.rerank:
-        rag_config.RAG_USE_RERANK = True
+        config.RAG_USE_RERANK = True
     if args.no_rerank:
-        rag_config.RAG_USE_RERANK = False
+        config.RAG_USE_RERANK = False
 
     if args.status:
         print("=== Reranker Status ===")
