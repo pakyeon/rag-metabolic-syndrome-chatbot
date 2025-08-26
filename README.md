@@ -13,42 +13,6 @@
 - **Advanced RAG**: 검색 → 리랭킹(선택) → LLM 추론 파이프라인  
 - **Backend API 서버**: 외부 시스템과 연동 가능한 REST API
 
-## 시스템 흐름도
-
-```mermaid
-graph TD
-    subgraph "사용자"
-        Q[사용자 질문]
-    end
-
-    subgraph "챗봇"
-        A(<b>api_server.py</b>)
-        B{<B>질문 의도 파악</B><br/>graph_components.py};
-        
-        direction LR
-        C[<B>1. 문서 검색</B><br/>engine.py] --> D[<B>2. 리랭크</B><br/>reranker.py] --> E[<B>3. 답변 종합</B><br/>graph_components.py];
-
-        F[<B>일반 상식 답변</B><br/>graph_components.py]
-        G[<B>최종 답변</B>]
-    end
-
-    subgraph "참고 자료"
-      DB[(Vector DB<br/>vector_db_build.py)]
-    end
-
-    %% --- 연결 관계 정의 ---
-    Q --> A;
-    A --> B;
-    B -- 대사증후군 관련 --> C;
-    C -- 관련 자료 검색 --> DB;
-    DB -- 검색 결과 --> C
-    E --> G;
-    B -- 관련 없음 --> F;
-    F --> G;
-    G --> Q;
-```
-
-
 ## LLM
 본 프로젝트에서 사용되는 모델은 아래와 같습니다:
 
@@ -154,4 +118,39 @@ API 키: 자유롭게 입력
 
 ```
 모델 선택 후 쿼리 입력
+```
+
+## 시스템 흐름도
+
+```mermaid
+graph TD
+    subgraph "사용자"
+        Q[사용자 질문]
+    end
+
+    subgraph "챗봇"
+        A(<b>api_server.py</b>)
+        B{<B>질문 의도 파악</B><br/>graph_components.py};
+        
+        direction LR
+        C[<B>1. 문서 검색</B><br/>engine.py] --> D[<B>2. 리랭크</B><br/>reranker.py] --> E[<B>3. 답변 종합</B><br/>graph_components.py];
+
+        F[<B>일반 상식 답변</B><br/>graph_components.py]
+        G[<B>최종 답변</B>]
+    end
+
+    subgraph "참고 자료"
+      DB[(Vector DB<br/>vector_db_build.py)]
+    end
+
+    %% --- 연결 관계 정의 ---
+    Q --> A;
+    A --> B;
+    B -- 대사증후군 관련 --> C;
+    C -- 관련 자료 검색 --> DB;
+    DB -- 검색 결과 --> C
+    E --> G;
+    B -- 관련 없음 --> F;
+    F --> G;
+    G --> Q;
 ```
