@@ -157,7 +157,12 @@ def n_generate_rag(state: RAGState) -> RAGState:
     """검색된 컨텍스트를 기반으로 답변을 생성합니다."""
     prompt = ChatPromptTemplate.from_messages(
         [
-            ("system", "당신은 주어진 질문에 대해 답변하는 AI입니다."),
+            (
+                "system",
+                """당신은 대사증후군 상담사를 지원하는 도우미입니다.
+답변은 한국어로 작성하며, 가독성이 좋도록 문단과 줄바꿈, 목록 등을 적극적으로 활용하세요.
+상담사가 환자에게 설명할 수 있도록 명확하고 이해하기 쉽게 작성하세요.""",
+            ),
             (
                 "user",
                 "검색된 문서를 참고하여 답변하세요.\n\n질문:\n{question}\n\n검색된 문서:\n{documents}\n",
