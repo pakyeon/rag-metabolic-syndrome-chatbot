@@ -297,9 +297,7 @@ def main():
     parser.add_argument(
         "--docs-folder", default=config.DOCUMENTS_FOLDER, help="문서 폴더 경로"
     )
-    parser.add_argument(
-        "--embed-model", default=config.EMBED_MODEL, help="임베딩 모델"
-    )
+    parser.add_argument("--embed-model", default=config.EMBED_MODEL, help="임베딩 모델")
     parser.add_argument(
         "--db-path", default=None, help="ChromaDB 저장 경로 (기본값: rag_config 기반)"
     )
