@@ -41,20 +41,20 @@ graph TD
     end
 
     subgraph "챗봇 시스템"
-        A(<b>API 서버</b><br/>api_server.py)
-        B{<B>질문 의도 파악</B><br/>graph_components.py};
+        A(<b>API 서버</b>)
+        B{<B>질문 의도 파악</B>};
         
         direction LR
         subgraph "RAG 파이프라인"
-            C[<B>1. 문서 검색</B><br/>engine.py] --> D[<B>2. 리랭크</B><br/>reranker.py] --> E[<B>3. 답변 종합</B><br/>graph_components.py];
+            C[<B>1. 문서 검색</B>] --> D[<B>2. 리랭크</B>] --> E[<B>3. 답변 종합</B>];
         end
 
-        F[<B>일반 상식 답변</B><br/>graph_components.py]
+        F[<B>일반 상식 답변</B>]
         G[<B>최종 답변</B>]
     end
 
     subgraph "데이터"
-      DB[(Vector DB<br/>vector_db_build.py)]
+      DB[(Vector DB)]
     end
 
     %% --- 연결 관계 ---
