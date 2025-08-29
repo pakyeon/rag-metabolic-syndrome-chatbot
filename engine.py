@@ -28,7 +28,7 @@ from graph_components import (
 )
 
 
-def load_or_build_db() -> Chroma:
+def load_or_build_db():
     """벡터 DB를 로드하거나, 없으면 새로 빌드합니다."""
     try:
         embeddings = HuggingFaceEmbeddings(
