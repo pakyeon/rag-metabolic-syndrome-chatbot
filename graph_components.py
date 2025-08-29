@@ -10,8 +10,8 @@ import config
 from reranker import reranker
 
 # --- LLM Clients ---
-llm = ChatOpenAI(model_name=config.LLM_MODEL, temperature=config.LLM_TEMPERATURE)
-detect_llm = ChatOpenAI(model_name=config.DETECT_LLM_MODEL, temperature=0)
+llm = ChatOpenAI(model=config.LLM_MODEL, temperature=config.LLM_TEMPERATURE)
+detect_llm = ChatOpenAI(model=config.DETECT_LLM_MODEL, temperature=0)
 
 
 # --- State ---
