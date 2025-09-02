@@ -14,12 +14,18 @@ from langchain_text_splitters import (
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 
-from utils import set_global_seed, get_directory_size
-import config
+from tqdm import tqdm
+from tqdm.contrib.logging import logging_redirect_tqdm
 
-# 로깅 설정
+import config
+from utils import set_global_seed, get_directory_size
+
+# -----------------------------
+# Logging
+# -----------------------------
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -47,7 +53,7 @@ class VectorDBBuilder:
         try:
             self.embeddings = HuggingFaceEmbeddings(
                 model_name=self.embedding_model_name,
-                encode_kwargs={"normalize_embeddings": True},
+                encode_kwargs={"normalize_embeddings": True, "show_progress_bar": True},
             )
             logger.info(
                 "임베딩 모델 초기화 완료: %s (normalize_embeddings=True)",
@@ -68,7 +74,7 @@ class VectorDBBuilder:
             logger.warning("폴더 '%s'에 .md 파일이 없습니다.", folder_path)
             return documents
         logger.info("발견된 .md 파일 수: %d", len(md_files))
-        for file_path in md_files:
+        for file_path in tqdm(md_files, desc="Loading .md files", unit="file"):
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     content = f.read()
@@ -132,62 +138,67 @@ class VectorDBBuilder:
             return chunks
         merged_chunks: List[Document] = []
         i = 0
-        while i < len(chunks):
-            current_chunk = chunks[i]
-            current_content = current_chunk.page_content.strip()
-            if len(
-                current_content
-            ) >= self.min_chunk_size and not self._is_header_only_chunk(
-                current_content
-            ):
-                merged_chunks.append(current_chunk)
-                i += 1
-                continue
-
-            merged_content = current_content
-            merged_metadata = dict(current_chunk.metadata)
-            j = i + 1
-            while j < len(chunks) and len(merged_content) < self.max_merge_size:
-                next_chunk = chunks[j]
-                if next_chunk.metadata.get("source") != merged_metadata.get("source"):
-                    break
-                if not self._can_merge_chunks(merged_metadata, next_chunk.metadata):
-                    break
-
-                next_content = self._dedup_overlap(
-                    merged_content, next_chunk.page_content.strip()
-                )
-                if not next_content:
-                    j += 1
+        with tqdm(total=len(chunks), desc="Merging small chunks", unit="chunk") as pbar:
+            while i < len(chunks):
+                current_chunk = chunks[i]
+                current_content = current_chunk.page_content.strip()
+                # 이미 충분히 길고 헤더만으로 구성되지 않았으면 그대로
+                if (
+                    len(current_content) >= self.min_chunk_size
+                    and not self._is_header_only_chunk(current_content)
+                ):
+                    merged_chunks.append(current_chunk)
+                    i += 1
+                    pbar.update(1)
                     continue
 
-                candidate = merged_content + "\n\n" + next_content
-                if len(candidate) > self.max_merge_size:
-                    break
+                merged_content = current_content
+                merged_metadata = dict(current_chunk.metadata)
+                j = i + 1
+                # 같은 문서(source) 내에서만 병합
+                while j < len(chunks) and len(merged_content) < self.max_merge_size:
+                    next_chunk = chunks[j]
+                    if next_chunk.metadata.get("source") != merged_metadata.get("source"):
+                        break
+                    if not self._can_merge_chunks(merged_metadata, next_chunk.metadata):
+                        break
 
-                merged_content = candidate
-                for k, v in next_chunk.metadata.items():
-                    if k not in merged_metadata:
-                        merged_metadata[k] = v
+                    next_content = self._dedup_overlap(
+                        merged_content, next_chunk.page_content.strip()
+                    )
+                    if not next_content:
+                        j += 1
+                        continue
 
-                if len(
-                    merged_content
-                ) >= self.min_chunk_size and not self._is_header_only_chunk(
-                    merged_content
-                ):
+                    candidate = merged_content + "\n\n" + next_content
+                    if len(candidate) > self.max_merge_size:
+                        break
+
+                    merged_content = candidate
+                    # 보조 메타데이터 합치기(덮어쓰지 않음)
+                    for k, v in next_chunk.metadata.items():
+                        if k not in merged_metadata:
+                            merged_metadata[k] = v
+
+                    # 최소 크기 충족하면 stop 조건
+                    if (
+                        len(merged_content) >= self.min_chunk_size
+                        and not self._is_header_only_chunk(merged_content)
+                    ):
+                        j += 1
+                        break
                     j += 1
-                    break
-                j += 1
 
-            if merged_content.strip():
-                merged_chunks.append(
-                    Document(page_content=merged_content, metadata=merged_metadata)
-                )
-            i = j
+                if merged_content.strip():
+                    merged_chunks.append(
+                        Document(page_content=merged_content, metadata=merged_metadata)
+                    )
+                # 진행도는 소비한 청크 수만큼 올림
+                pbar.update(max(1, j - i))
+                i = j
         return merged_chunks
 
-    @staticmethod
-    def _compose_header_path(md: dict) -> str:
+    def _compose_header_path(self, md: dict) -> str:
         """메타데이터로부터 헤더 경로 문자열을 생성합니다."""
         parts = [md.get(f"Header {i}") for i in range(1, 4)]
         return " / ".join(
@@ -211,7 +222,7 @@ class VectorDBBuilder:
         )
 
         all_chunks: List[Document] = []
-        for doc in documents:
+        for doc in tqdm(documents, desc="Splitting docs", unit="doc"):
             for split in splitter.split_text(doc.page_content):
                 merged_md = {**doc.metadata, **split.metadata}
                 merged_md["header_path"] = self._compose_header_path(merged_md)
@@ -232,7 +243,7 @@ class VectorDBBuilder:
         unique_chunks: List[Document] = []
         seen = set()
         normalize = lambda t: re.sub(r"\s+", " ", t.strip())
-        for doc in chunks:
+        for doc in tqdm(chunks, desc="Deduplicating", unit="chunk"):
             key = (normalize(doc.page_content), doc.metadata.get("source"))
             if key not in seen:
                 seen.add(key)
@@ -260,12 +271,15 @@ class VectorDBBuilder:
     ) -> bool:
         """폴더로부터 전체 빌드 파이프라인을 실행합니다."""
         try:
-            docs = self.load_md_files_from_folder(folder_path)
-            if not docs:
-                return False
-            chunks = self.split_documents(docs, chunk_size, chunk_overlap)
-            unique_chunks = self.remove_duplicates(chunks)
-            self.create_vector_database(unique_chunks)
+            with logging_redirect_tqdm():
+                docs = self.load_md_files_from_folder(folder_path)
+                if not docs:
+                    return False
+                chunks = self.split_documents(docs, chunk_size, chunk_overlap)
+                unique_chunks = self.remove_duplicates(chunks)
+                logger.info("Chroma에 문서 쓰는 중…")
+                self.create_vector_database(unique_chunks)
+                logger.info("Chroma 저장 완료.")
             return True
         except Exception as e:
             logger.exception("벡터 DB 빌드 중 오류 발생: %s", e)
@@ -280,9 +294,8 @@ class VectorDBBuilder:
                     embedding_function=self.embeddings,
                 )
             return {
-                "status": "Ready",
-                "total_documents": self.db._collection.count(),
-                "embedding_model": self.embedding_model_name,
+                "status": "OK",
+                "collection_count": self.db._collection.count(),  # type: ignore
                 "path": self.chromadb_path,
                 "size": get_directory_size(self.chromadb_path),
             }
