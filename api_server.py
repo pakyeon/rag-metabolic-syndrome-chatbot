@@ -71,18 +71,19 @@ def get_rag_engine():
 # Streaming generator (server-sent events style)
 # ------------------------------------------------------------------------------
 async def stream_rag_answer(question: str) -> AsyncGenerator[str, None]:
-    """RAG 답변을 공백/개행까지 보존하며 스트리밍"""
+    """RAG 답변을 실제 토큰 단위로 스트리밍"""
     try:
         answer_func, rag_app = get_rag_engine()
-        result = rag_app.invoke({"question": question})
-        answer = result.get("answer", "죄송합니다. 답변을 생성할 수 없습니다.")
-
-        # 공백(스페이스/탭)과 개행(\n, \r\n)을 포함해서 그대로 흘려보냄
-        # [^\s]+ : 공백이 아닌 연속 토큰
-        # \s+    : 공백/개행의 연속(== 그대로 유지하고 내보냄)
-        for m in re.finditer(r"[^\s]+|\s+", answer):
-            yield m.group(0)
-            await asyncio.sleep(0.02)
+        
+        async for message_chunk, metadata in rag_app.astream(
+            {"question": question},
+            stream_mode="messages"
+        ):
+            # classify 노드는 제외하고 답변 생성 노드만 스트리밍
+            node_name = metadata.get("langgraph_node", "")
+            if node_name in ["generate_rag", "generate_direct"]:
+                if hasattr(message_chunk, 'content') and message_chunk.content:
+                    yield message_chunk.content
 
     except Exception as e:
         msg = f"답변 생성 중 오류가 발생했습니다: {str(e)}"
