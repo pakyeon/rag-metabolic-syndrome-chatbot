@@ -76,8 +76,7 @@ async def stream_rag_answer(question: str) -> AsyncGenerator[str, None]:
         answer_func, rag_app = get_rag_engine()
         
         async for message_chunk, metadata in rag_app.astream(
-            {"question": question},
-            stream_mode="messages"
+            {"question": question}, stream_mode="messages"
         ):
             # classify 노드는 제외하고 답변 생성 노드만 스트리밍
             node_name = metadata.get("langgraph_node", "")

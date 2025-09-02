@@ -12,7 +12,7 @@ class ChatRequest(BaseModel):
     messages: List[Message]
     temperature: Optional[float] = 0
     max_tokens: Optional[int] = None
-    stream: Optional[bool] = False
+    stream: Optional[bool] = True
 
 
 class Usage(BaseModel):
@@ -43,4 +43,4 @@ class ChatResponse(BaseModel):
 
 class SimpleAskRequest(BaseModel):
     question: str
-    stream: Optional[bool] = False
+    stream: Optional[bool] = True
