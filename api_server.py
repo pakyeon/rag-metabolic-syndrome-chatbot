@@ -74,14 +74,14 @@ async def stream_rag_answer(question: str) -> AsyncGenerator[str, None]:
     """RAG 답변을 실제 토큰 단위로 스트리밍"""
     try:
         answer_func, rag_app = get_rag_engine()
-        
+
         async for message_chunk, metadata in rag_app.astream(
             {"question": question}, stream_mode="messages"
         ):
             # classify 노드는 제외하고 답변 생성 노드만 스트리밍
             node_name = metadata.get("langgraph_node", "")
             if node_name in ["generate_rag", "generate_direct"]:
-                if hasattr(message_chunk, 'content') and message_chunk.content:
+                if hasattr(message_chunk, "content") and message_chunk.content:
                     yield message_chunk.content
 
     except Exception as e:
@@ -173,8 +173,8 @@ async def chat_completions(
         response_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
         created_timestamp = int(time.time())
 
-        prompt_tokens = count_tokens(question, request.model or "gpt-4o")
-        completion_tokens = count_tokens(answer, request.model or "gpt-4o")
+        prompt_tokens = count_tokens(question, request.model)
+        completion_tokens = count_tokens(answer, request.model)
         total_tokens = prompt_tokens + completion_tokens
 
         response = ChatResponse(
