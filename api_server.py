@@ -8,6 +8,7 @@ import re
 import time
 import uuid
 import json
+import hashlib
 
 # === import shared models & utils ===
 from api_models import (
@@ -25,6 +26,7 @@ from config import (
     API_HOST,
     API_PORT,
 )
+from redis_memory import memory
 
 # ------------------------------------------------------------------------------
 # FastAPI App
@@ -68,15 +70,61 @@ def get_rag_engine():
 
 
 # ------------------------------------------------------------------------------
+# 사용자/대화 ID 추출 유틸리티
+# ------------------------------------------------------------------------------
+def extract_user_conversation_id(
+    request: ChatRequest, authorization: Optional[str] = None
+) -> tuple[str, str]:
+    """요청에서 사용자 ID와 대화 ID를 추출"""
+
+    # 1. 요청 body에서 직접 추출
+    user_id = request.user_id
+    conversation_id = request.conversation_id
+
+    # 2. Authorization 헤더에서 사용자 ID 추출 (간단한 방법)
+    if not user_id and authorization:
+        # "Bearer token" 형태에서 토큰 부분을 해시해서 사용자 ID로 사용
+        token = authorization.replace("Bearer ", "").replace("bearer ", "")
+        if token:
+            user_id = hashlib.md5(token.encode()).hexdigest()[:12]
+
+    # 3. 기본값 설정
+    if not user_id:
+        user_id = "default_user"
+
+    if not conversation_id:
+        conversation_id = "default_conversation"
+
+    return user_id, conversation_id
+
+
+# ------------------------------------------------------------------------------
 # Streaming generator (server-sent events style)
 # ------------------------------------------------------------------------------
-async def stream_rag_answer(question: str) -> AsyncGenerator[str, None]:
+async def stream_rag_answer(
+    question: str, user_id: str = None, conversation_id: str = None
+) -> AsyncGenerator[str, None]:
     """RAG 답변을 실제 토큰 단위로 스트리밍"""
     try:
         answer_func, rag_app = get_rag_engine()
 
+        # 대화 히스토리 조회
+        conversation_history = ""
+        if user_id and conversation_id:
+            conversation_history = memory.format_history_for_llm(
+                user_id, conversation_id
+            )
+
+        # 상태에 히스토리 정보 추가
+        initial_state = {
+            "question": question,
+            "conversation_history": conversation_history,
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+        }
+
         async for message_chunk, metadata in rag_app.astream(
-            {"question": question}, stream_mode="messages"
+            initial_state, stream_mode="messages"
         ):
             # classify 노드는 제외하고 답변 생성 노드만 스트리밍
             node_name = metadata.get("langgraph_node", "")
@@ -104,6 +152,9 @@ async def chat_completions(
             raise HTTPException(status_code=400, detail="No user message found.")
         question = user_messages[-1]
 
+        # 사용자/대화 ID 추출
+        user_id, conversation_id = extract_user_conversation_id(request, authorization)
+
         # --- streaming ---
         if request.stream:
 
@@ -111,6 +162,9 @@ async def chat_completions(
                 created_ts = int(time.time())
                 resp_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
                 model_id = request.model or "rag-gpt"
+
+                # 사용자 메시지를 Redis에 저장
+                memory.add_message(user_id, conversation_id, "user", question)
 
                 # 1) role delta
                 chunk_role = {
@@ -129,7 +183,11 @@ async def chat_completions(
                 yield f"data: {json.dumps(chunk_role, ensure_ascii=False)}\n\n"
 
                 # 2) token deltas
-                async for token in stream_rag_answer(question):
+                full_answer = ""
+                async for token in stream_rag_answer(
+                    question, user_id, conversation_id
+                ):
+                    full_answer += token
                     chunk_content = {
                         "id": resp_id,
                         "object": "chat.completion.chunk",
@@ -144,6 +202,12 @@ async def chat_completions(
                         ],
                     }
                     yield f"data: {json.dumps(chunk_content, ensure_ascii=False)}\n\n"
+
+                # 어시스턴트 답변을 Redis에 저장
+                if full_answer.strip():
+                    memory.add_message(
+                        user_id, conversation_id, "assistant", full_answer.strip()
+                    )
 
                 # 3) finish
                 chunk_finish = {
@@ -167,8 +231,25 @@ async def chat_completions(
             )
 
         # --- non-stream ---
-        answer_func, _ = get_rag_engine()
-        answer = answer_func(question) or "죄송합니다. 답변을 생성할 수 없습니다."
+        # 사용자 메시지를 Redis에 저장
+        memory.add_message(user_id, conversation_id, "user", question)
+
+        # 대화 히스토리 조회
+        conversation_history = memory.format_history_for_llm(user_id, conversation_id)
+
+        # RAG 답변 생성 (히스토리 포함)
+        answer_func, rag_app = get_rag_engine()
+        initial_state = {
+            "question": question,
+            "conversation_history": conversation_history,
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+        }
+        final_state = rag_app.invoke(initial_state)
+        answer = final_state.get("answer") or "죄송합니다. 답변을 생성할 수 없습니다."
+
+        # 어시스턴트 답변을 Redis에 저장
+        memory.add_message(user_id, conversation_id, "assistant", answer)
 
         response_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
         created_timestamp = int(time.time())
@@ -210,11 +291,29 @@ async def chat_completions(
 @app.post("/api/ask")
 async def simple_ask(body: SimpleAskRequest):
     try:
+        # 사용자/대화 ID 설정
+        user_id = body.user_id or "simple_user"
+        conversation_id = body.conversation_id or "simple_conversation"
+
         if body.stream:
 
             async def simple_sse_generator():
-                async for token in stream_rag_answer(body.question):
+                # 사용자 메시지를 Redis에 저장
+                memory.add_message(user_id, conversation_id, "user", body.question)
+
+                full_answer = ""
+                async for token in stream_rag_answer(
+                    body.question, user_id, conversation_id
+                ):
+                    full_answer += token
                     yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+
+                # 어시스턴트 답변을 Redis에 저장
+                if full_answer.strip():
+                    memory.add_message(
+                        user_id, conversation_id, "assistant", full_answer.strip()
+                    )
+
                 yield "data: [DONE]\n\n"
 
             return StreamingResponse(
@@ -223,8 +322,27 @@ async def simple_ask(body: SimpleAskRequest):
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
             )
 
-        answer_func, _ = get_rag_engine()
-        answer = answer_func(body.question)
+        # non-stream
+        # 사용자 메시지를 Redis에 저장
+        memory.add_message(user_id, conversation_id, "user", body.question)
+
+        # 대화 히스토리 조회
+        conversation_history = memory.format_history_for_llm(user_id, conversation_id)
+
+        # RAG 답변 생성
+        answer_func, rag_app = get_rag_engine()
+        initial_state = {
+            "question": body.question,
+            "conversation_history": conversation_history,
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+        }
+        final_state = rag_app.invoke(initial_state)
+        answer = final_state.get("answer") or "답변을 생성할 수 없습니다."
+
+        # 어시스턴트 답변을 Redis에 저장
+        memory.add_message(user_id, conversation_id, "assistant", answer)
+
         return {"question": body.question, "answer": answer, "status": "success"}
 
     except Exception as e:
@@ -235,6 +353,37 @@ async def simple_ask(body: SimpleAskRequest):
             "status": "error",
             "error": str(e),
         }
+
+
+# ------------------------------------------------------------------------------
+# Memory Management APIs
+# ------------------------------------------------------------------------------
+@app.delete("/api/memory/{user_id}/{conversation_id}")
+async def clear_conversation_memory(user_id: str, conversation_id: str):
+    """특정 대화의 메모리 삭제"""
+    try:
+        success = memory.clear_conversation(user_id, conversation_id)
+        return {
+            "status": "success" if success else "failed",
+            "message": f"Conversation memory cleared for {user_id}/{conversation_id}",
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@app.get("/api/memory/{user_id}/{conversation_id}")
+async def get_conversation_memory(user_id: str, conversation_id: str):
+    """특정 대화의 메모리 조회"""
+    try:
+        history = memory.get_conversation_history(user_id, conversation_id)
+        return {
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "history": history,
+            "message_count": len(history),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
 
 # ------------------------------------------------------------------------------
@@ -262,18 +411,30 @@ def list_models():
 
 @app.get("/api/status")
 def get_status():
-    """RAG 엔진 및 리랭커 상태 확인"""
+    """RAG 엔진 및 리랭커, Redis 상태 확인"""
     try:
         if _rag_engine is None:
-            return {"rag_loaded": False, "reranker_status": "not_loaded"}
+            rag_status = {"rag_loaded": False, "reranker_status": "not_loaded"}
+        else:
+            from engine import get_reranker_status
 
-        from engine import (
-            get_reranker_status,
-        )
+            rag_status = {
+                "rag_loaded": True,
+                "reranker_status": get_reranker_status(),
+            }
+
+        # Redis 상태 확인
+        redis_status = {"connected": False, "error": None}
+        if memory.redis_client:
+            try:
+                memory.redis_client.ping()
+                redis_status["connected"] = True
+            except Exception as e:
+                redis_status["error"] = str(e)
 
         return {
-            "rag_loaded": True,
-            "reranker_status": get_reranker_status(),
+            **rag_status,
+            "redis_memory": redis_status,
             "status": "ready",
         }
     except Exception as e:

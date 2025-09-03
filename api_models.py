@@ -13,6 +13,9 @@ class ChatRequest(BaseModel):
     temperature: Optional[float] = 0
     max_tokens: Optional[int] = None
     stream: Optional[bool] = True
+    # Open-WebUI에서 전달되는 메타데이터
+    user_id: Optional[str] = None
+    conversation_id: Optional[str] = None
 
 
 class Usage(BaseModel):
@@ -44,3 +47,6 @@ class ChatResponse(BaseModel):
 class SimpleAskRequest(BaseModel):
     question: str
     stream: Optional[bool] = True
+    # Open-WebUI에서 전달되는 메타데이터
+    user_id: Optional[str] = None
+    conversation_id: Optional[str] = None

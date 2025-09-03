@@ -109,9 +109,13 @@ app = get_rag_app()
 
 
 # --- Public API & Utilities ---
-def answer_question_graph(question: str) -> str:
+def answer_question_graph(question: str, conversation_history: str = None) -> str:
     """질문에 대한 답변을 생성합니다."""
-    final_state = app.invoke({"question": question})
+    initial_state = {"question": question}
+    if conversation_history:
+        initial_state["conversation_history"] = conversation_history
+
+    final_state = app.invoke(initial_state)
     return (
         final_state.get("answer")
         or f"죄송합니다. 답변을 생성하지 못했습니다. 사유: {final_state.get('error', 'unknown')}"
@@ -155,6 +159,7 @@ def main():
     )
     parser.add_argument("--viz", action="store_true", help="그래프 시각화 파일 저장")
     parser.add_argument("--status", action="store_true", help="Reranker 상태 확인")
+    parser.add_argument("--test-memory", action="store_true", help="메모리 기능 테스트")
     rerank_group = parser.add_mutually_exclusive_group()
     rerank_group.add_argument(
         "--rerank", action="store_true", help="Reranker 사용 강제"
@@ -173,6 +178,33 @@ def main():
         print("=== Reranker Status ===")
         for k, v in get_reranker_status().items():
             print(f"{k}: {v}")
+        return
+
+    if args.test_memory:
+        print("=== Memory Test ===")
+        try:
+            from redis_memory import memory
+
+            # 테스트 메시지 추가
+            memory.add_message("test_user", "test_conv", "user", "안녕하세요")
+            memory.add_message(
+                "test_user",
+                "test_conv",
+                "assistant",
+                "안녕하세요! 무엇을 도와드릴까요?",
+            )
+
+            # 히스토리 조회
+            history = memory.get_conversation_history("test_user", "test_conv")
+            print(f"History: {history}")
+
+            # 포맷된 히스토리
+            formatted = memory.format_history_for_llm("test_user", "test_conv")
+            print(f"Formatted: {formatted}")
+
+            print("Memory test completed successfully!")
+        except Exception as e:
+            print(f"Memory test failed: {e}")
         return
 
     if args.viz:

@@ -25,6 +25,10 @@ class RAGState(TypedDict, total=False):
     context: str
     answer: str
     error: Optional[str]
+    # 메모리 관련 필드 추가
+    conversation_history: Optional[str]
+    user_id: Optional[str]
+    conversation_id: Optional[str]
 
 
 # --- Nodes ---
@@ -155,32 +159,96 @@ def n_build_context(state: RAGState) -> RAGState:
 
 def n_generate_rag(state: RAGState) -> RAGState:
     """검색된 컨텍스트를 기반으로 답변을 생성합니다."""
+
+    # 대화 히스토리 포함한 프롬프트 구성
+    conversation_history = state.get("conversation_history", "")
+
+    if conversation_history:
+        system_message = """당신은 대사증후군 상담사를 지원하는 도우미입니다.
+답변은 한국어로 작성하며, 가독성이 좋도록 문단과 줄바꿈, 목록 등을 적극적으로 활용하세요.
+상담사가 환자에게 설명할 수 있도록 명확하고 이해하기 쉽게 작성하세요.
+
+이전 대화 내용을 참고하여 문맥에 맞는 답변을 제공하세요."""
+
+        user_message = """이전 대화:
+{conversation_history}
+
+현재 질문:
+{question}
+
+검색된 문서:
+{documents}
+
+위의 이전 대화 내용과 검색된 문서를 모두 참고하여 현재 질문에 답변하세요."""
+
+    else:
+        system_message = """당신은 대사증후군 상담사를 지원하는 도우미입니다.
+답변은 한국어로 작성하며, 가독성이 좋도록 문단과 줄바꿈, 목록 등을 적극적으로 활용하세요.
+상담사가 환자에게 설명할 수 있도록 명확하고 이해하기 쉽게 작성하세요."""
+
+        user_message = "검색된 문서를 참고하여 답변하세요.\n\n질문:\n{question}\n\n검색된 문서:\n{documents}\n"
+
     prompt = ChatPromptTemplate.from_messages(
         [
-            (
-                "system",
-                """당신은 대사증후군 상담사를 지원하는 도우미입니다.
-답변은 한국어로 작성하며, 가독성이 좋도록 문단과 줄바꿈, 목록 등을 적극적으로 활용하세요.
-상담사가 환자에게 설명할 수 있도록 명확하고 이해하기 쉽게 작성하세요.""",
-            ),
-            (
-                "user",
-                "검색된 문서를 참고하여 답변하세요.\n\n질문:\n{question}\n\n검색된 문서:\n{documents}\n",
-            ),
+            ("system", system_message),
+            ("user", user_message),
         ]
     )
+
     chain = prompt | llm
-    resp = chain.invoke(
-        {"question": state["question"], "documents": state.get("context", "")}
-    )
+
+    invoke_params = {
+        "question": state["question"],
+        "documents": state.get("context", ""),
+    }
+
+    if conversation_history:
+        invoke_params["conversation_history"] = conversation_history
+
+    resp = chain.invoke(invoke_params)
     return {"answer": resp.content}
 
 
 def n_generate_direct(state: RAGState) -> RAGState:
     """컨텍스트 없이 직접 답변을 생성합니다."""
-    prompt = ChatPromptTemplate.from_template("질문: {q}\n위 질문에 대해 답변하시오.")
-    chain = prompt | llm
-    resp = chain.invoke({"q": state["question"]})
+
+    # 대화 히스토리 포함한 프롬프트 구성
+    conversation_history = state.get("conversation_history", "")
+
+    if conversation_history:
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """당신은 AI 어시스턴트입니다.
+이전 대화 내용을 참고하여 문맥에 맞는 답변을 제공하세요.
+답변은 한국어로 작성하며, 명확하고 이해하기 쉽게 작성하세요.""",
+                ),
+                (
+                    "user",
+                    """이전 대화:
+{conversation_history}
+
+현재 질문:
+{question}
+
+위의 이전 대화 내용을 참고하여 현재 질문에 답변하세요.""",
+                ),
+            ]
+        )
+
+        resp = (prompt | llm).invoke(
+            {
+                "conversation_history": conversation_history,
+                "question": state["question"],
+            }
+        )
+    else:
+        prompt = ChatPromptTemplate.from_template(
+            "질문: {question}\n위 질문에 대해 답변하시오."
+        )
+        resp = (prompt | llm).invoke({"question": state["question"]})
+
     return {"answer": resp.content}
 
 

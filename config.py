@@ -14,6 +14,12 @@ RAG_USE_RERANK = _env_truthy(os.getenv("RAG_USE_RERANK", "0"))
 TOP_K = int(os.getenv("RAG_TOP_K", "20"))
 DETECT_LLM_MODEL = os.getenv("DETECT_LLM_MODEL", "gpt-5-nano")
 
+# --- Redis Memory Config ---
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
+REDIS_TTL_HOURS = int(os.getenv("REDIS_TTL_HOURS", "1"))
+
 # --- VectorDB Builder Config ---
 DOCUMENTS_FOLDER = "./metabolic_syndrome_data"
 CHUNK_SIZE = 500
