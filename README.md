@@ -36,7 +36,7 @@
 ```mermaid
 graph TD
     subgraph "사용자"
-        Q[사용자 질문]
+        Q[<B>사용자 질문</B>]
     end
 
     subgraph "챗봇 시스템"
@@ -46,10 +46,10 @@ graph TD
         
         direction LR
         subgraph "RAG 파이프라인"
-            C[<B>1. 문서 검색</B>] --> D[<B>2. 리랭크</B>] --> E[<B>3. 답변 종합</B>];
+            C[<B>1. 문서 검색</B>] --> D[<B>2. 리랭크</B>] --> E[<B>3. 프롬프트 결합</B>];
         end
 
-        F[<B>일반 상식 답변</B>]
+        F[<B>프롬프트 결합</B>]
         G[<B>최종 답변</B>]
     end
 
