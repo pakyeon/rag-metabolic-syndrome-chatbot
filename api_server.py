@@ -48,7 +48,7 @@ except Exception as e:
 app = FastAPI(
     title="RAG API Server",
     description="FastAPI로 제공하는 RAG(검색증강생성) 질문-답변 서비스",
-    version="0.4.0",
+    version="0.4.1",
 )
 
 # CORS
@@ -330,7 +330,6 @@ async def simple_ask(body: SimpleAskRequest):
         conversation_history = memory.format_history_for_llm(user_id, conversation_id)
 
         # RAG 답변 생성
-        _, rag_app = get_rag_engine()
         initial_state = {
             "question": body.question,
             "conversation_history": conversation_history,
