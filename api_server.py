@@ -1,4 +1,3 @@
-# rag_api_server.py (refactored full)
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -29,12 +28,27 @@ from config import (
 from redis_memory import memory
 
 # ------------------------------------------------------------------------------
+# RAG Engine - 서버 시작 시 로딩
+# ------------------------------------------------------------------------------
+print("[INFO] Loading RAG engine during server startup...")
+try:
+    from engine import (
+        answer_question_graph,
+        app as rag_app,
+    )
+
+    print("[INFO] RAG engine loaded successfully during startup")
+except Exception as e:
+    print(f"[ERROR] Failed to load RAG engine during startup: {e}")
+    raise e
+
+# ------------------------------------------------------------------------------
 # FastAPI App
 # ------------------------------------------------------------------------------
 app = FastAPI(
     title="RAG API Server",
     description="FastAPI로 제공하는 RAG(검색증강생성) 질문-답변 서비스",
-    version="0.3.0",
+    version="0.4.0",
 )
 
 # CORS
@@ -46,27 +60,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ------------------------------------------------------------------------------
-# Lazy-load RAG Engine
-# ------------------------------------------------------------------------------
-_rag_engine = None
-_rag_app = None
 
-
+# ------------------------------------------------------------------------------
+# RAG Engine getter (이제 이미 로딩된 것을 반환)
+# ------------------------------------------------------------------------------
 def get_rag_engine():
-    """RAG 엔진을 지연 로딩"""
-    global _rag_engine, _rag_app
-    if _rag_engine is None:
-        print("[INFO] Loading RAG engine (first request)...")
-        from engine import (
-            answer_question_graph,
-            app as rag_app,
-        )
-
-        _rag_engine = answer_question_graph
-        _rag_app = rag_app
-        print("[INFO] RAG engine loaded successfully")
-    return _rag_engine, _rag_app
+    """RAG 엔진을 반환 (서버 시작 시 이미 로딩됨)"""
+    return answer_question_graph, rag_app
 
 
 # ------------------------------------------------------------------------------
@@ -106,7 +106,7 @@ async def stream_rag_answer(
 ) -> AsyncGenerator[str, None]:
     """RAG 답변을 실제 토큰 단위로 스트리밍"""
     try:
-        answer_func, rag_app = get_rag_engine()
+        _, rag_app = get_rag_engine()
 
         # 대화 히스토리 조회
         conversation_history = ""
@@ -238,7 +238,7 @@ async def chat_completions(
         conversation_history = memory.format_history_for_llm(user_id, conversation_id)
 
         # RAG 답변 생성 (히스토리 포함)
-        answer_func, rag_app = get_rag_engine()
+        _, rag_app = get_rag_engine()
         initial_state = {
             "question": question,
             "conversation_history": conversation_history,
@@ -330,7 +330,7 @@ async def simple_ask(body: SimpleAskRequest):
         conversation_history = memory.format_history_for_llm(user_id, conversation_id)
 
         # RAG 답변 생성
-        answer_func, rag_app = get_rag_engine()
+        _, rag_app = get_rag_engine()
         initial_state = {
             "question": body.question,
             "conversation_history": conversation_history,
@@ -413,15 +413,13 @@ def list_models():
 def get_status():
     """RAG 엔진 및 리랭커, Redis 상태 확인"""
     try:
-        if _rag_engine is None:
-            rag_status = {"rag_loaded": False, "reranker_status": "not_loaded"}
-        else:
-            from engine import get_reranker_status
+        # RAG 엔진은 이미 로딩되어 있으므로 바로 상태를 확인할 수 있습니다
+        from engine import get_reranker_status
 
-            rag_status = {
-                "rag_loaded": True,
-                "reranker_status": get_reranker_status(),
-            }
+        rag_status = {
+            "rag_loaded": True,
+            "reranker_status": get_reranker_status(),
+        }
 
         # Redis 상태 확인
         redis_status = {"connected": False, "error": None}
