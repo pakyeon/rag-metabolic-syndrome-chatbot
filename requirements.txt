@@ -24,6 +24,9 @@ transformers==4.55.2
 sentence-transformers==5.1.0
 tiktoken==0.11.0
 
+# --- Redis ---
+redis==6.4.0
+
 # --- 수치/ML 기본 ---
 numpy>=2.1,<2.4
 
