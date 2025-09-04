@@ -4,7 +4,7 @@ import glob
 import logging
 import argparse
 import shutil
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import (
@@ -24,10 +24,11 @@ from utils import set_global_seed, get_directory_size
 # Logging
 # -----------------------------
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+    level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+PART_FILE_RE = re.compile(r"^part-(\d{2,3})\.md$", re.IGNORECASE)
 
 
 class VectorDBBuilder:
@@ -38,6 +39,8 @@ class VectorDBBuilder:
         min_content_length: int,
         min_chunk_size: int,
         max_merge_size: int,
+        raw_dir: str,
+        parsed_dir: str,
     ) -> None:
         self.embedding_model_name = embedding_model_name
         self.chromadb_path = chromadb_path
@@ -46,6 +49,8 @@ class VectorDBBuilder:
         self.min_content_length = min_content_length
         self.min_chunk_size = min_chunk_size
         self.max_merge_size = max_merge_size
+        self.raw_dir = raw_dir
+        self.parsed_dir = parsed_dir
         self._initialize_embeddings()
 
     def _initialize_embeddings(self) -> None:
@@ -63,26 +68,76 @@ class VectorDBBuilder:
             logger.error("임베딩 모델 초기화 실패: %s", str(e))
             raise
 
-    def load_md_files_from_folder(self, folder_path: str) -> List[Document]:
-        """폴더에서 마크다운 파일을 로드합니다."""
+    def _enumerate_md_parts(self) -> Dict[str, List[Tuple[int, str]]]:
+        """
+        parsed/<BASENAME>/part-XX.md 를 모두 수집하여
+        {basename: [(part_index, md_path), ...]} 형태로 반환
+        """
+        result: Dict[str, List[Tuple[int, str]]] = {}
+        if not os.path.isdir(self.parsed_dir):
+            logger.warning("파싱 폴더가 없습니다: %s", self.parsed_dir)
+            return result
+
+        for basename in sorted(os.listdir(self.parsed_dir)):
+            base_dir = os.path.join(self.parsed_dir, basename)
+            if not os.path.isdir(base_dir):
+                continue
+            parts: List[Tuple[int, str]] = []
+            for fname in sorted(os.listdir(base_dir)):
+                m = PART_FILE_RE.match(fname)
+                if not m:
+                    continue
+                idx = int(m.group(1))
+                parts.append((idx, os.path.join(base_dir, fname)))
+            if parts:
+                parts.sort(key=lambda x: x[0])
+                result[basename] = parts
+        return result
+
+    def _resolve_pdf_path(self, basename: str) -> Optional[str]:
+        """
+        raw/<BASENAME>.pdf 존재 확인 후 경로 반환.
+        (없으면 None)
+        """
+        candidate = os.path.join(self.raw_dir, f"{basename}.pdf")
+        return candidate if os.path.exists(candidate) else None
+
+    def load_md_files(self) -> List[Document]:
+        """
+        parsed/<BASENAME>/part-XX.md를 로드하여 LangChain Document로 변환.
+        메타데이터에 basename/part_index/part_count/pdf_path/md_path/source_id 포함.
+        """
         documents: List[Document] = []
-        if not os.path.exists(folder_path):
-            logger.warning("폴더 '%s'가 존재하지 않습니다.", folder_path)
+        mapping = self._enumerate_md_parts()
+        if not mapping:
+            logger.warning("파싱 문서를 찾지 못했습니다: %s", self.parsed_dir)
             return documents
-        md_files = glob.glob(os.path.join(folder_path, "*.md"))
-        if not md_files:
-            logger.warning("폴더 '%s'에 .md 파일이 없습니다.", folder_path)
-            return documents
-        logger.info("발견된 .md 파일 수: %d", len(md_files))
-        for file_path in tqdm(md_files, desc="Loading .md files", unit="file"):
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-                    documents.append(
-                        Document(page_content=content, metadata={"source": file_path})
-                    )
-            except Exception as e:
-                logger.error("파일 읽기 실패 (%s): %s", file_path, str(e))
+
+        logger.info("발견된 문서 수(베이스네임): %d", len(mapping))
+        for basename, parts in tqdm(
+            mapping.items(), desc="Loading parsed docs", unit="doc"
+        ):
+            pdf_path = self._resolve_pdf_path(basename)
+            if pdf_path is None:
+                logger.warning("대응 PDF를 찾을 수 없습니다: raw/%s.pdf", basename)
+            part_count = len(parts)
+            for part_index, md_path in parts:
+                try:
+                    with open(md_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                    meta = {
+                        "source": md_path,  # 원본 경로(LC 표준 키)
+                        "basename": basename,  # 원본-파싱 공통 키
+                        "part_index": part_index,  # 1부터 시작
+                        "part_count": part_count,
+                        "md_path": md_path,
+                        "pdf_path": pdf_path,
+                        "source_id": f"{basename}#part-{part_index:02d}",
+                    }
+                    documents.append(Document(page_content=content, metadata=meta))
+                except Exception as e:
+                    logger.error("파일 읽기 실패 (%s): %s", md_path, str(e))
+        logger.info("총 MD 파트 파일 수: %d", len(documents))
         return documents
 
     def _is_header_only_chunk(self, content: str) -> bool:
@@ -143,9 +198,10 @@ class VectorDBBuilder:
                 current_chunk = chunks[i]
                 current_content = current_chunk.page_content.strip()
                 # 이미 충분히 길고 헤더만으로 구성되지 않았으면 그대로
-                if (
-                    len(current_content) >= self.min_chunk_size
-                    and not self._is_header_only_chunk(current_content)
+                if len(
+                    current_content
+                ) >= self.min_chunk_size and not self._is_header_only_chunk(
+                    current_content
                 ):
                     merged_chunks.append(current_chunk)
                     i += 1
@@ -158,7 +214,9 @@ class VectorDBBuilder:
                 # 같은 문서(source) 내에서만 병합
                 while j < len(chunks) and len(merged_content) < self.max_merge_size:
                     next_chunk = chunks[j]
-                    if next_chunk.metadata.get("source") != merged_metadata.get("source"):
+                    if next_chunk.metadata.get("source") != merged_metadata.get(
+                        "source"
+                    ):
                         break
                     if not self._can_merge_chunks(merged_metadata, next_chunk.metadata):
                         break
@@ -181,9 +239,10 @@ class VectorDBBuilder:
                             merged_metadata[k] = v
 
                     # 최소 크기 충족하면 stop 조건
-                    if (
-                        len(merged_content) >= self.min_chunk_size
-                        and not self._is_header_only_chunk(merged_content)
+                    if len(
+                        merged_content
+                    ) >= self.min_chunk_size and not self._is_header_only_chunk(
+                        merged_content
                     ):
                         j += 1
                         break
@@ -260,7 +319,6 @@ class VectorDBBuilder:
             chunks, self.embeddings, persist_directory=self.chromadb_path
         )
         try:
-            # 일부 버전에서 명시 persist가 안전
             self.db.persist()
         except Exception:
             pass
@@ -272,7 +330,7 @@ class VectorDBBuilder:
         """폴더로부터 전체 빌드 파이프라인을 실행합니다."""
         try:
             with logging_redirect_tqdm():
-                docs = self.load_md_files_from_folder(folder_path)
+                docs = self.load_md_files(folder_path)
                 if not docs:
                     return False
                 chunks = self.split_documents(docs, chunk_size, chunk_overlap)
@@ -308,11 +366,12 @@ def main():
     set_global_seed(1)
     parser = argparse.ArgumentParser(description="벡터 DB 빌드 스크립트")
     parser.add_argument(
-        "--docs-folder", default=config.DOCUMENTS_FOLDER, help="문서 폴더 경로"
+        "--parsed-dir", default=config.PARSED_DIR, help="파싱 문서 루트 (parsed)"
     )
+    parser.add_argument("--raw-dir", default=config.RAW_DIR, help="원본 PDF 루트 (raw)")
     parser.add_argument("--embed-model", default=config.EMBED_MODEL, help="임베딩 모델")
     parser.add_argument(
-        "--db-path", default=None, help="ChromaDB 저장 경로 (기본값: rag_config 기반)"
+        "--db-path", default=config.CHROMA_DIR, help="ChromaDB 저장 경로"
     )
     parser.add_argument(
         "--chunk-size", type=int, default=config.CHUNK_SIZE, help="청크 크기"
@@ -322,16 +381,17 @@ def main():
     )
     args = parser.parse_args()
 
-    db_path = args.db_path or os.path.join(config.CHROMA_DIR_BASE, args.embed_model)
-
     builder = VectorDBBuilder(
         embedding_model_name=args.embed_model,
-        chromadb_path=db_path,
+        chromadb_path=args.db_path,
         min_content_length=config.MIN_CONTENT_LENGTH,
         min_chunk_size=config.MIN_CHUNK_SIZE,
         max_merge_size=config.MAX_MERGE_SIZE,
+        raw_dir=args.raw_dir,
+        parsed_dir=args.parsed_dir,
     )
-    if builder.build_from_folder(args.docs_folder, args.chunk_size, args.chunk_overlap):
+
+    if builder.build(args.chunk_size, args.chunk_overlap):
         logger.info("\n=== DB 정보 ===")
         for k, v in builder.get_database_info().items():
             logger.info("%s: %s", k, v)
