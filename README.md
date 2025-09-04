@@ -42,33 +42,36 @@ graph TD
     subgraph "챗봇 시스템"
         A(<b>API 서버</b>)
         B{<B>질문 의도 파악</B>};
-        M[<b>Redis 대화 메모리</b>]
         
         direction LR
         subgraph "RAG 파이프라인"
-            C[<B>1. 문서 검색</B>] --> D[<B>2. 리랭크</B>] --> E[<B>3. 프롬프트 결합</B>];
+            C[<B>문서 검색</B>] --> D[<B>리랭크</B>] --> E[<B>프롬프트 결합</B>];
         end
 
         F[<B>프롬프트 결합</B>]
         G[<B>최종 답변</B>]
     end
 
-    subgraph "데이터"
-      DB[(<B>Vector DB</B>)]
+    subgraph "문서 데이터"
+      DB1[(<B>Chroma</B>)]
+    end
+
+    subgraph "단기 기억"
+      DB2[(<B>Redis</B>)]
     end
 
     %% --- 연결 관계 ---
     Q --> A;
     A --> B;
     B -- "대사증후군 관련" --> C;
-    C -- "관련 자료 검색" --> DB;
-    DB -- "검색 결과" --> C
-    M -- "이전 대화 참고" --> E;
+    C -- "관련 자료 검색" --> DB1;
+    DB1 -- "검색 결과" --> C
+    DB2 -- "이전 대화 참고" --> E;
     E --> G;
     B -- "일반 상식" --> F;
-    M -- "이전 대화 참고" --> F;
+    DB2 -- "이전 대화 참고" --> F;
     F --> G;
-    G --> M;
+    G --> DB2;
     G --> Q;
 ```
 
