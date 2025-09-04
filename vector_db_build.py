@@ -58,7 +58,7 @@ class VectorDBBuilder:
         try:
             self.embeddings = HuggingFaceEmbeddings(
                 model_name=self.embedding_model_name,
-                encode_kwargs={"normalize_embeddings": True, "show_progress_bar": True},
+                encode_kwargs={"normalize_embeddings": True},
             )
             logger.info(
                 "임베딩 모델 초기화 완료: %s (normalize_embeddings=True)",
@@ -324,13 +324,10 @@ class VectorDBBuilder:
             pass
         logger.info("벡터 DB 저장 완료: %s", self.chromadb_path)
 
-    def build_from_folder(
-        self, folder_path: str, chunk_size: int, chunk_overlap: int
-    ) -> bool:
-        """폴더로부터 전체 빌드 파이프라인을 실행합니다."""
+    def build(self, chunk_size: int, chunk_overlap: int) -> bool:
         try:
             with logging_redirect_tqdm():
-                docs = self.load_md_files(folder_path)
+                docs = self.load_md_files()
                 if not docs:
                     return False
                 chunks = self.split_documents(docs, chunk_size, chunk_overlap)
