@@ -310,21 +310,34 @@ class VectorDBBuilder:
         logger.info("중복 제거 전 %d개 -> 후 %d개", len(chunks), len(unique_chunks))
         return unique_chunks
 
-    def create_vector_database(self, chunks: List[Document]) -> None:
+    def create_vector_database(self, chunks: List[Document], batch_size: int) -> None:
         """벡터 데이터베이스를 생성하고 저장합니다."""
         if os.path.exists(self.chromadb_path):
             shutil.rmtree(self.chromadb_path)
             logger.info("기존 벡터 DB 삭제: %s", self.chromadb_path)
-        self.db = Chroma.from_documents(
-            chunks, self.embeddings, persist_directory=self.chromadb_path
+
+        # Chroma DB 초기화
+        self.db = Chroma(
+            persist_directory=self.chromadb_path,
+            embedding_function=self.embeddings,
         )
+
+        for i in tqdm(
+            range(0, len(chunks), batch_size),
+            desc="Adding documents to Chroma",
+            unit="batch",
+        ):
+            batch = chunks[i : i + batch_size]
+            self.db.add_documents(documents=batch)
+
         try:
+            # 모든 문서 추가 후 persist를 호출합니다.
             self.db.persist()
         except Exception:
             pass
         logger.info("벡터 DB 저장 완료: %s", self.chromadb_path)
 
-    def build(self, chunk_size: int, chunk_overlap: int) -> bool:
+    def build(self, chunk_size: int, chunk_overlap: int, batch_size: int) -> bool:
         try:
             with logging_redirect_tqdm():
                 docs = self.load_md_files()
@@ -333,7 +346,7 @@ class VectorDBBuilder:
                 chunks = self.split_documents(docs, chunk_size, chunk_overlap)
                 unique_chunks = self.remove_duplicates(chunks)
                 logger.info("Chroma에 문서 쓰는 중…")
-                self.create_vector_database(unique_chunks)
+                self.create_vector_database(unique_chunks, batch_size=batch_size)
                 logger.info("Chroma 저장 완료.")
             return True
         except Exception as e:
@@ -376,6 +389,12 @@ def main():
     parser.add_argument(
         "--chunk-overlap", type=int, default=config.CHUNK_OVERLAP, help="청크 겹침"
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=config.DB_BATCH_SIZE,
+        help="DB 추가 시 배치 크기",
+    )
     args = parser.parse_args()
 
     builder = VectorDBBuilder(
@@ -387,8 +406,7 @@ def main():
         raw_dir=args.raw_dir,
         parsed_dir=args.parsed_dir,
     )
-
-    if builder.build(args.chunk_size, args.chunk_overlap):
+    if builder.build(args.chunk_size, args.chunk_overlap, batch_size=args.batch_size):
         logger.info("\n=== DB 정보 ===")
         for k, v in builder.get_database_info().items():
             logger.info("%s: %s", k, v)

@@ -23,8 +23,6 @@ REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
 REDIS_TTL_HOURS = int(os.getenv("REDIS_TTL_HOURS", "1"))
 
 # --- Data Layout (맞춤 경로) ---
-#   ./raw/<BASENAME>.pdf
-#   ./parsed/<BASENAME>/part-01.md ...
 DATA_ROOT = os.getenv("RAG_DATA_ROOT", "./metabolic_syndrome_data")
 RAW_DIR = os.getenv("RAG_RAW_DIR", os.path.join(DATA_ROOT, "raw"))
 PARSED_DIR = os.getenv("RAG_PARSED_DIR", os.path.join(DATA_ROOT, "parsed"))
@@ -35,6 +33,7 @@ CHUNK_OVERLAP = int(os.getenv("RAG_CHUNK_OVERLAP", "50"))
 MIN_CONTENT_LENGTH = int(os.getenv("RAG_MIN_CONTENT_LENGTH", "30"))
 MIN_CHUNK_SIZE = int(os.getenv("RAG_MIN_CHUNK_SIZE", "100"))
 MAX_MERGE_SIZE = int(os.getenv("RAG_MAX_MERGE_SIZE", "1000"))
+DB_BATCH_SIZE = int(os.getenv("RAG_DB_BATCH_SIZE", "64"))
 
 # --- API Server Config ---
 DEFAULT_ORIGINS = [
