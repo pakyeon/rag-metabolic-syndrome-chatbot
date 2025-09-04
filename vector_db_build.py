@@ -126,12 +126,11 @@ class VectorDBBuilder:
                     with open(md_path, "r", encoding="utf-8") as f:
                         content = f.read()
                     meta = {
-                        "source": md_path,  # 원본 경로(LC 표준 키)
+                        "source": pdf_path,  # 원본 문서
                         "basename": basename,  # 원본-파싱 공통 키
-                        "part_index": part_index,  # 1부터 시작
+                        "part_index": part_index,  # 01부터 시작
                         "part_count": part_count,
-                        "md_path": md_path,
-                        "pdf_path": pdf_path,
+                        "md_path": md_path if md_path else None,  # 파싱 문서
                         "source_id": f"{basename}#part-{part_index:02d}",
                     }
                     documents.append(Document(page_content=content, metadata=meta))
@@ -259,15 +258,34 @@ class VectorDBBuilder:
 
     def _compose_header_path(self, md: dict) -> str:
         """메타데이터로부터 헤더 경로 문자열을 생성합니다."""
-        parts = [md.get(f"Header {i}") for i in range(1, 4)]
-        return " / ".join(
+        parts = [md.get(f"Header {i}") for i in range(1, 7)]
+        return " > ".join(
             [p.strip() for p in parts if isinstance(p, str) and p.strip()]
         )
+
+    def _extract_lower_level_headers(self, content: str) -> Dict[str, str]:
+        """주어진 텍스트 블록에서 H4, H5, H6 헤더를 파싱하여 반환합니다."""
+        headers = {}
+        lines = content.split("\n")
+        patterns = {
+            "Header 4": re.compile(r"^\s*####\s+(.+)"),
+            "Header 5": re.compile(r"^\s*#####\s+(.+)"),
+            "Header 6": re.compile(r"^\s*######\s+(.+)"),
+        }
+        # 각 레벨별로 가장 먼저 나타나는 헤더 하나만 저장
+        for key, pattern in patterns.items():
+            for line in lines:
+                match = pattern.match(line)
+                if match:
+                    headers[key] = match.group(1).strip()
+                    break
+        return headers
 
     def split_documents(
         self, documents: List[Document], chunk_size: int, chunk_overlap: int
     ) -> List[Document]:
         """문서를 청크로 분할합니다."""
+        # 분할 기준은 H1~H3로 유지합니다.
         splitter = MarkdownHeaderTextSplitter(
             headers_to_split_on=[
                 ("#", "Header 1"),
@@ -282,9 +300,19 @@ class VectorDBBuilder:
 
         all_chunks: List[Document] = []
         for doc in tqdm(documents, desc="Splitting docs", unit="doc"):
+            # 1. splitter는 H1~H3을 기준으로 텍스트를 자르고 해당 메타데이터를 반환합니다.
             for split in splitter.split_text(doc.page_content):
+                # 2. H1~H3 메타데이터를 기본으로 가져옵니다.
                 merged_md = {**doc.metadata, **split.metadata}
+
+                # 3. 잘린 청크의 내용에서 H4~H6 헤더를 직접 파싱하여 메타데이터에 추가합니다.
+                lower_headers = self._extract_lower_level_headers(split.page_content)
+                merged_md.update(lower_headers)
+
+                # 4. H1~H6 정보가 모두 포함된 메타데이터로 전체 헤더 경로를 생성합니다.
                 merged_md["header_path"] = self._compose_header_path(merged_md)
+
+                # 5. 이후 로직은 동일하게, 크기에 따라 추가 분할을 진행합니다.
                 if len(split.page_content) > chunk_size:
                     for chunk in text_splitter.split_text(split.page_content):
                         all_chunks.append(
