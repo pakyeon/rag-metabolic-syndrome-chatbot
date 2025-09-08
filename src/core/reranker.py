@@ -1,7 +1,7 @@
 import torch
 import threading
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from utils import choose_torch_dtype
+from src.utils import choose_torch_dtype
 
 
 class RerankerSingleton:

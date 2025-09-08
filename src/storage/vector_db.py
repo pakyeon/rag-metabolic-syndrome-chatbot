@@ -17,8 +17,8 @@ from langchain_core.documents import Document
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 
-import config
-from utils import set_global_seed, get_directory_size
+from src import config
+from src.utils import set_global_seed, get_directory_size
 
 # -----------------------------
 # Logging

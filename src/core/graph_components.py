@@ -6,8 +6,8 @@ from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
-import config
-from reranker import reranker
+from src import config
+from src.core.reranker import reranker
 
 # --- LLM Clients ---
 llm = ChatOpenAI(model=config.LLM_MODEL, temperature=config.LLM_TEMPERATURE)

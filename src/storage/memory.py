@@ -3,7 +3,7 @@ import json
 import time
 from typing import List, Dict, Optional
 from datetime import timedelta
-import config
+from src import config
 
 
 class RedisMemory:

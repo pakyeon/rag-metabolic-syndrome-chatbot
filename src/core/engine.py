@@ -12,10 +12,10 @@ from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langgraph.graph import StateGraph, START, END
 
-import config
-from reranker import reranker
-from vector_db_build import VectorDBBuilder
-from graph_components import (
+from src import config
+from src.core.reranker import reranker
+from src.storage.vector_db import VectorDBBuilder
+from src.core.graph_components import (
     RAGState,
     n_classify,
     n_retrieve,
@@ -183,7 +183,7 @@ def main():
     if args.test_memory:
         print("=== Memory Test ===")
         try:
-            from redis_memory import memory
+            from src.storage.memory import memory
 
             # 테스트 메시지 추가
             memory.add_message("test_user", "test_conv", "user", "안녕하세요")

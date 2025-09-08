@@ -8,6 +8,7 @@
 
 - [주요 특징](#주요-특징)
 - [시스템 아키텍처](#시스템-아키텍처)
+- [시작하기](#시작하기)
   - [사전 요구사항](#사전-요구사항)
   - [설치 및 실행](#설치-및-실행)
 - [사용 방법](#사용-방법)
@@ -81,7 +82,7 @@ graph LR
 
 ---
 
-## 🚀 시작하기
+## 시작하기
 
 ### 사전 요구사항
 - Python 3.10+
@@ -92,13 +93,9 @@ graph LR
 
 1. **프로젝트 클론**
    ```bash
-   # API 코드
-   git clone https://github.com/pakyeon/rag-metabolic-syndrome-chatbot.git
+   # 프로젝트와 데이터(submodule) 함께 클론
+   git clone --recurse-submodules https://github.com/pakyeon/rag-metabolic-syndrome-chatbot.git
    cd rag-metabolic-syndrome-chatbot
-
-   # VectorDB에 사용될 데이터 파일
-   # git submodule로 통합 예정
-   git clone https://github.com/pakyeon/metabolic_syndrome_data.git
    ```
 
 2. **필요 패키지 설치**
@@ -106,13 +103,7 @@ graph LR
    pip install -r requirements.txt
    ```
 
-3. **Redis 서버 실행**
-   ```bash
-   # Docker를 사용한 Redis 실행
-   docker run -d -p 6379:6379 redis:alpine --name redis-memory
-   ```
-
-4. **환경 변수 설정**
+3. **환경 변수 설정**
    `.env` 파일을 생성하고 아래 내용을 복사하여 채워넣습니다.
    ```bash
    # .env 파일 예시
@@ -125,7 +116,6 @@ graph LR
    DETECT_LLM_MODEL="gpt-5-nano"
    RAG_LLM_TEMPERATURE=0.2
    RAG_TOP_K=5
-   RAG_RERANK_TOP_K=20
    RAG_USE_RERANK=0 # 0: 사용 안함, 1: 사용
 
    # Redis 설정 (선택)
@@ -135,26 +125,27 @@ graph LR
    REDIS_TTL_HOURS=1
    ```
 
-5. **VectorDB 데이터 구축**
+4. **VectorDB 데이터 구축**
    `metabolic_syndrome_data` 폴더의 문서를 기반으로 VectorDB를 생성합니다.
    ```bash
-   python vector_db_build.py
+   python run.py build-db
    ```
 
-6. **Redis 연결 테스트** (선택)
+5. **Redis 서버 실행**
    ```bash
-   python engine.py --test-memory
+   # Docker를 사용한 Redis 실행
+   docker run -d -p 6379:6379 --name redis-memory redis:alpine
    ```
 
-7. **API 서버 실행**
+6. **API 서버 실행**
+서버가 `http://localhost:8910`에서 실행됩니다.
    ```bash
-   python api_server.py
+   python run.py server
    ```
-   서버가 `http://localhost:8910`에서 실행됩니다.
 
 ---
 
-## 📖 사용 방법
+## 사용 방법
 
 ### API 직접 호출
 서버가 실행된 후, `curl`을 사용하여 API를 직접 테스트할 수 있습니다.
@@ -175,6 +166,7 @@ curl http://localhost:8910/v1/chat/completions \
 ```
 
 #### 대화 기억을 활용한 연속 질문
+
 ```bash
 # 첫 번째 질문
 curl http://localhost:8910/v1/chat/completions \
@@ -233,17 +225,22 @@ Docker를 사용하여 Open-WebUI를 설치하고 API 서버를 연동할 수 �
 ## 프로젝트 구조
 ```
 .
-├── api_server.py         # FastAPI 기반 API 서버
-├── engine.py             # RAG 핵심 로직 (검색, 답변 생성)
-├── graph_components.py   # RAG 파이프라인(그래프) 구성 요소
-├── redis_memory.py       # Redis 기반 대화 메모리 관리
-├── vector_db_build.py    # VectorDB 생성 및 관리
-├── reranker.py           # Reranker 모델 로직
-├── config.py             # 프로젝트 설정 (환경변수 등)
-├── utils.py              # 유틸리티 함수
-├── api_models.py         # API 요청/응답 모델
-├── requirements.txt      # Python 패키지 의존성
-└── metabolic_syndrome_data/ # 대사증후군 문서 디렉토리
+├── run.py                     # 통합 실행 스크립트 (서버, DB빌드)
+├── src
+│   ├── api
+│   │   ├── server.py          # FastAPI 기반 API 서버
+│   │   └── schema.py          # API 요청/응답 모델
+│   ├── core
+│   │   ├── engine.py          # RAG 핵심 로직 (LangGraph)
+│   │   ├── graph_components.py# RAG 파이프라인(그래프) 구성 요소
+│   │   └── reranker.py        # Reranker 모델 로직
+│   ├── storage
+│   │   ├── memory.py          # Redis 기반 대화 메모리 관리
+│   │   └── vector_db.py       # VectorDB 생성 및 관리
+│   ├── config.py              # 프로젝트 설정 (환경변수 등)
+│   └── utils.py               # 유틸리티 함수
+├── requirements.txt           # Python 패키지 의존성
+└── metabolic_syndrome_data/   # 대사증후군 문서 디렉토리 (Git Submodule)
 ```
 
 ---
@@ -251,27 +248,27 @@ Docker를 사용하여 Open-WebUI를 설치하고 API 서버를 연동할 수 �
 ## 환경 변수 설정
 
 ### 필수 설정
-| 변수명                  | 기능                                       | 기본값                  | 필수 | 
-| ----------------------- | ------------------------------------------ | ----------------------- | ---- | 
-| `OPENAI_API_KEY`        | OpenAI API 키                              | -                       | **예** | 
+| 변수명                  | 기능                                       | 기본값                  | 필수 |
+| ----------------------- | ------------------------------------------ | ----------------------- | ---- |
+| `OPENAI_API_KEY`        | OpenAI API 키                              | -                       | **예** |
 
 ### RAG 엔진 설정
-| 변수명                  | 기능                                       | 기본값                  | 필수 | 
-| ----------------------- | ------------------------------------------ | ----------------------- | ---- | 
-| `RAG_LLM_MODEL`         | 답변 생성(추론)에 사용할 LLM 모델          | `gpt-4o`                | 아니오 | 
-| `RAG_EMBED_MODEL`       | 임베딩에 사용할 모델                       | `nlpai-lab/KURE-v1`     | 아니오 | 
-| `DETECT_LLM_MODEL`      | 질문 분류에 사용할 LLM 모델                | `gpt-5-nano`           | 아니오 | 
-| `RAG_LLM_TEMPERATURE`   | 생성 모델의 Temperature 값 (창의성 조절)   | `0.2`                   | 아니오 | 
-| `RAG_TOP_K`             | LLM에 입력으로 제공할 검색된 문서의 수     | `20`                    | 아니오 | 
-| `RAG_USE_RERANK`        | 리랭커 사용 여부 (`1`: 사용, `0`: 미사용)  | `0`                     | 아니오 | 
+| 변수명                  | 기능                                       | 기본값                  | 필수 |
+| ----------------------- | ------------------------------------------ | ----------------------- | ---- |
+| `RAG_LLM_MODEL`         | 답변 생성(추론)에 사용할 LLM 모델          | `gpt-4o`                | 아니오 |
+| `RAG_EMBED_MODEL`       | 임베딩에 사용할 모델                       | `nlpai-lab/KURE-v1`     | 아니오 |
+| `DETECT_LLM_MODEL`      | 질문 분류에 사용할 LLM 모델                | `gpt-5-nano`           | 아니오 |
+| `RAG_LLM_TEMPERATURE`   | 생성 모델의 Temperature 값 (창의성 조절)   | `0.2`                   | 아니오 |
+| `RAG_TOP_K`             | LLM에 입력으로 제공할 검색된 문서의 수     | `5`                     | 아니오 |
+| `RAG_USE_RERANK`        | 리랭커 사용 여부 (`1`: 사용, `0`: 미사용)  | `0`                     | 아니오 |
 
 ### Redis 메모리 설정
-| 변수명                  | 기능                                       | 기본값                  | 필수 | 
-| ----------------------- | ------------------------------------------ | ----------------------- | ---- | 
-| `REDIS_HOST`            | Redis 서버 호스트                          | `localhost`             | 아니오 | 
-| `REDIS_PORT`            | Redis 서버 포트                            | `6379`                  | 아니오 | 
-| `REDIS_PASSWORD`        | Redis 인증 비밀번호                        | (없음)                  | 아니오 | 
-| `REDIS_TTL_HOURS`       | 대화 기록 유지 시간 (시간)                 | `1`                     | 아니오 | 
+| 변수명                  | 기능                                       | 기본값                  | 필수 |
+| ----------------------- | ------------------------------------------ | ----------------------- | ---- |
+| `REDIS_HOST`            | Redis 서버 호스트                          | `localhost`             | 아니오 |
+| `REDIS_PORT`            | Redis 서버 포트                            | `6379`                  | 아니오 |
+| `REDIS_PASSWORD`        | Redis 인증 비밀번호                        | (없음)                  | 아니오 |
+| `REDIS_TTL_HOURS`       | 대화 기록 유지 시간 (시간)                 | `1`                     | 아니오 |
 
 ---
 

@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from utils import _env_truthy
+from src.utils import _env_truthy
 
 load_dotenv()
 

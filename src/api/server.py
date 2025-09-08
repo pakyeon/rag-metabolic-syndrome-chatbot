@@ -10,7 +10,7 @@ import json
 import hashlib
 
 # === import shared models & utils ===
-from api_models import (
+from src.api.schema import (
     ChatRequest,
     ChatResponse,
     ChatResponseChoice,
@@ -19,20 +19,20 @@ from api_models import (
     Message,
     SimpleAskRequest,
 )
-from utils import count_tokens
-from config import (
+from src.utils import count_tokens
+from src.config import (
     ALLOW_ORIGINS as allow_origins,
     API_HOST,
     API_PORT,
 )
-from redis_memory import memory
+from src.storage.memory import memory
 
 # ------------------------------------------------------------------------------
 # RAG Engine - 서버 시작 시 로딩
 # ------------------------------------------------------------------------------
 print("[INFO] Loading RAG engine during server startup...")
 try:
-    from engine import (
+    from src.core.engine import (
         answer_question_graph,
         app as rag_app,
     )
@@ -413,7 +413,7 @@ def get_status():
     """RAG 엔진 및 리랭커, Redis 상태 확인"""
     try:
         # RAG 엔진은 이미 로딩되어 있으므로 바로 상태를 확인할 수 있습니다
-        from engine import get_reranker_status
+        from src.core.engine import get_reranker_status
 
         rag_status = {
             "rag_loaded": True,
