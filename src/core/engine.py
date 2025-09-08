@@ -19,7 +19,7 @@ from src.core.graph_components import (
     RAGState,
     n_classify,
     n_retrieve,
-    n_score,
+    n_prepare_docs,
     n_rerank,
     n_build_context,
     n_generate_rag,
@@ -81,7 +81,7 @@ def get_rag_app():
 
     graph.add_node("classify", n_classify)
     graph.add_node("retrieve", partial(n_retrieve, db=DB))
-    graph.add_node("score", n_score)
+    graph.add_node("prepare_docs", n_prepare_docs)
     graph.add_node("rerank", n_rerank)
     graph.add_node("build_context", n_build_context)
     graph.add_node("generate_rag", n_generate_rag)
@@ -93,8 +93,8 @@ def get_rag_app():
         lambda s: s.get("is_related", False),
         {True: "retrieve", False: "generate_direct"},
     )
-    graph.add_edge("retrieve", "score")
-    graph.add_edge("score", "rerank")
+    graph.add_edge("retrieve", "prepare_docs")
+    graph.add_edge("prepare_docs", "rerank")
     graph.add_edge("rerank", "build_context")
     graph.add_edge("build_context", "generate_rag")
     graph.add_edge("generate_rag", "guard_end")

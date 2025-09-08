@@ -60,24 +60,26 @@ def n_retrieve(state: RAGState, db) -> RAGState:
         return {"raw_docs": docs, "scores": []}
 
 
-def n_score(state: RAGState) -> RAGState:
-    """검색된 문서에 점수를 매기고 형식을 지정합니다."""
+def n_prepare_docs(state: RAGState) -> RAGState:
+    """검색된 문서를 표준 형태로 정리(메타데이터/스코어 패킹)합니다."""
     docs = state.get("raw_docs", [])
     scores = state.get("scores", [])
     if not docs:
-        return {"scored": []}
+        return {"prepared": []}
 
-    scored_docs = []
+    prepared_docs = []
     for d, s in zip(docs, scores) if scores else [(d, None) for d in docs]:
-        scored_docs.append(
+        md = getattr(d, "metadata", {}) or {}
+        prepared_docs.append(
             {
-                "document": d,
-                "retrieval_score": float(s) if s is not None else None,
-                "source": d.metadata.get("source", "unknown"),
                 "content": d.page_content,
+                "source": md.get("source", "unknown"),
+                "source_id": md.get("source_id"),
+                "header_path": md.get("header_path", ""),
+                "retrieval_score": float(s) if s is not None else None,
             }
         )
-    return {"scored": scored_docs}
+    return {"prepared": prepared_docs}
 
 
 def _format_rerank_instruction(query: str, doc: str) -> str:
@@ -93,10 +95,7 @@ def _rerank_docs(query: str, doc_list: List[dict], top_k: int = 5) -> List[dict]
         return doc_list[:top_k]
 
     try:
-        pairs = [
-            _format_rerank_instruction(query, d["document"].page_content)
-            for d in doc_list
-        ]
+        pairs = [_format_rerank_instruction(query, d["content"]) for d in doc_list]
 
         # 토큰화 및 모델 입력 준비
         inputs = reranker.tokenizer(
@@ -148,12 +147,19 @@ def n_rerank(state: RAGState) -> RAGState:
 
 def n_build_context(state: RAGState) -> RAGState:
     """LLM에 전달할 컨텍스트를 구성합니다."""
-    items = state.get("reranked") or state.get("scored") or []
+    items = state.get("reranked") or state.get("prepared") or []
     lines = []
     for i, d in enumerate(items, 1):
-        metadata = getattr(d.get("document"), "metadata", {}) or {}
-        header_path = metadata.get("header_path", "")
-        lines.append(f"{i}. 출처: {header_path}\n   내용: {d.get('content','')}\n")
+        header_path = d.get("header_path", "") or ""
+        source = d.get("source") or "unknown"
+        source_id = d.get("source_id") or ""
+
+        # 출처 라벨 구성: header_path > source_id > source
+        src_label = header_path if header_path else (source_id if source_id else source)
+        if header_path and source_id:
+            src_label = f"{header_path} [{source_id}]"
+
+        lines.append(f"{i}. 출처: {src_label}\n" f"   내용: {d.get('content','')}\n")
     return {"context": "\n\n".join(lines)}
 
 
