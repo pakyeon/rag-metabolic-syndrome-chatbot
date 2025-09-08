@@ -13,9 +13,33 @@ def run_server(host="0.0.0.0", port=8910):
 
 def build_db():
     """VectorDB 빌드"""
-    from src.storage.vector_db import main
+    # main() 함수를 호출하지 말고 직접 VectorDBBuilder를 사용
+    from src.storage.vector_db import VectorDBBuilder
+    from src.utils import set_global_seed
+    from src import config
 
-    main()
+    # vector_db.py의 main() 함수와 동일한 로직을 직접 실행
+    set_global_seed(1)
+
+    builder = VectorDBBuilder(
+        embedding_model_name=config.EMBED_MODEL,
+        chromadb_path=config.CHROMA_DIR,
+        min_content_length=config.MIN_CONTENT_LENGTH,
+        min_chunk_size=config.MIN_CHUNK_SIZE,
+        max_merge_size=config.MAX_MERGE_SIZE,
+        raw_dir=config.RAW_DIR,
+        parsed_dir=config.PARSED_DIR,
+    )
+
+    if builder.build(
+        config.CHUNK_SIZE, config.CHUNK_OVERLAP, batch_size=config.DB_BATCH_SIZE
+    ):
+        print("\n=== DB 정보 ===")
+        for k, v in builder.get_database_info().items():
+            print(f"{k}: {v}")
+        print("\n벡터 DB 빌드 완료!")
+    else:
+        print("벡터 DB 빌드 실패.")
 
 
 def main():
