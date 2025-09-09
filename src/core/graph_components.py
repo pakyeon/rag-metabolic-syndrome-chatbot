@@ -20,7 +20,7 @@ class RAGState(TypedDict, total=False):
     is_related: bool
     raw_docs: List[Document]
     scores: List[float]
-    scored: List[dict]
+    prepared: List[dict]
     reranked: List[dict]
     context: str
     answer: str
@@ -61,7 +61,10 @@ def n_retrieve(state: RAGState, db) -> RAGState:
 
 
 def n_prepare_docs(state: RAGState) -> RAGState:
-    """검색된 문서를 표준 형태로 정리(메타데이터/스코어 패킹)합니다."""
+    """
+    [수정됨] 검색된 문서를 표준 형태로 정리합니다.
+    (basename을 추가로 추출)
+    """
     docs = state.get("raw_docs", [])
     scores = state.get("scores", [])
     if not docs:
@@ -73,8 +76,7 @@ def n_prepare_docs(state: RAGState) -> RAGState:
         prepared_docs.append(
             {
                 "content": d.page_content,
-                "source": md.get("source", "unknown"),
-                "source_id": md.get("source_id"),
+                "basename": md.get("basename", "알 수 없는 문서"),
                 "header_path": md.get("header_path", ""),
                 "retrieval_score": float(s) if s is not None else None,
             }
@@ -150,16 +152,14 @@ def n_build_context(state: RAGState) -> RAGState:
     items = state.get("reranked") or state.get("prepared") or []
     lines = []
     for i, d in enumerate(items, 1):
-        header_path = d.get("header_path", "") or ""
-        source = d.get("source") or "unknown"
-        source_id = d.get("source_id") or ""
-
-        # 출처 라벨 구성: header_path > source_id > source
-        src_label = header_path if header_path else (source_id if source_id else source)
-        if header_path and source_id:
-            src_label = f"{header_path} [{source_id}]"
-
-        lines.append(f"{i}. 출처: {src_label}\n" f"   내용: {d.get('content','')}\n")
+        basename = d.get("basename", "알 수 없는 문서")
+        header_path = d.get("header_path") or "전체 내용"
+        lines.append(
+            f"{i}.\n"
+            f"출처: {basename}\n"
+            f"경로: {header_path}\n"
+            f"내용: {d.get('content','')}\n"
+        )
     return {"context": "\n\n".join(lines)}
 
 
@@ -173,9 +173,18 @@ def n_generate_rag(state: RAGState) -> RAGState:
         system_message = """당신은 대사증후군 상담사를 지원하는 도우미입니다.
 답변은 한국어로 작성하며, 가독성이 좋도록 문단과 줄바꿈, 목록 등을 적극적으로 활용하세요.
 상담사가 환자에게 설명할 수 있도록 명확하고 이해하기 쉽게 작성하세요.
+이전 대화 내용과 아래 '검색된 문서'를 모두 참고하여 문맥에 맞는 답변을 제공하세요.
 
-이전 대화 내용을 참고하여 문맥에 맞는 답변을 제공하세요."""
+답변의 마지막에는 참고한 문서와 목차('출처' 정보)를 반드시 명시해야 합니다. 
+출처 표기 예시는 다음과 같습니다:
 
+참고 자료:
+- 출처: '대사증후군 관리 가이드'  
+  경로: '생활습관 개선 > 식이요법'
+
+- 출처: '환자 교육자료'  
+  경로: '운동 가이드라인'
+"""
         user_message = """이전 대화:
 {conversation_history}
 
@@ -185,14 +194,34 @@ def n_generate_rag(state: RAGState) -> RAGState:
 검색된 문서:
 {documents}
 
-위의 이전 대화 내용과 검색된 문서를 모두 참고하여 현재 질문에 답변하세요."""
-
+위의 이전 대화 내용과 '검색된 문서'를 모두 참고하여 현재 질문에 답변하세요.
+답변 마지막에는 참고한 '출처'를 명시해야 합니다."""
     else:
         system_message = """당신은 대사증후군 상담사를 지원하는 도우미입니다.
 답변은 한국어로 작성하며, 가독성이 좋도록 문단과 줄바꿈, 목록 등을 적극적으로 활용하세요.
-상담사가 환자에게 설명할 수 있도록 명확하고 이해하기 쉽게 작성하세요."""
+상담사가 환자에게 설명할 수 있도록 명확하고 이해하기 쉽게 작성하세요.
+제공된 '검색된 문서'의 '출처'를 바탕으로 답변을 생성해야 합니다.
+답변의 마지막에는 어떤 문서와 목차('출처' 정보)를 참고했는지 반드시 명시해야 합니다. 예:
 
-        user_message = "검색된 문서를 참고하여 답변하세요.\n\n질문:\n{question}\n\n검색된 문서:\n{documents}\n"
+답변의 마지막에는 참고한 문서와 목차('출처' 정보)를 반드시 명시해야 합니다. 
+출처 표기 예시는 다음과 같습니다:
+
+참고 자료:
+- 출처: '대사증후군 관리 가이드'  
+  경로: '생활습관 개선 > 식이요법'
+
+- 출처: '환자 교육자료'  
+  경로: '운동 가이드라인'
+"""
+        user_message = """'검색된 문서'의 '출처'와 '내용'을 참고하여 질문에 답변하세요.
+답변 마지막에는 참고한 '출처'를 반드시 명시해야 합니다.
+
+질문:
+{question}
+
+검색된 문서:
+{documents}
+"""
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -200,17 +229,13 @@ def n_generate_rag(state: RAGState) -> RAGState:
             ("user", user_message),
         ]
     )
-
     chain = prompt | llm
-
     invoke_params = {
         "question": state["question"],
         "documents": state.get("context", ""),
     }
-
     if conversation_history:
         invoke_params["conversation_history"] = conversation_history
-
     resp = chain.invoke(invoke_params)
     return {"answer": resp.content}
 
