@@ -164,64 +164,55 @@ def n_build_context(state: RAGState) -> RAGState:
 
 
 def n_generate_rag(state: RAGState) -> RAGState:
-    """검색된 컨텍스트를 기반으로 답변을 생성합니다."""
+    """개선된 RAG 기반 답변 생성 함수"""
 
-    # 대화 히스토리 포함한 프롬프트 구성
     conversation_history = state.get("conversation_history", "")
 
-    if conversation_history:
-        system_message = """당신은 대사증후군 상담사를 지원하는 도우미입니다.
-답변은 한국어로 작성하며, 가독성이 좋도록 문단과 줄바꿈, 목록 등을 적극적으로 활용하세요.
-상담사가 환자에게 설명할 수 있도록 명확하고 이해하기 쉽게 작성하세요.
-이전 대화 내용과 아래 '검색된 문서'를 모두 참고하여 문맥에 맞는 답변을 제공하세요.
+    # 공통 시스템 메시지 (구조화 및 의료 면책사항 추가)
+    system_message = """당신은 대사증후군 상담사를 지원하는 전문 AI 도우미입니다.
 
-답변의 마지막에는 참고한 문서와 목차('출처' 정보)를 반드시 명시해야 합니다. 
-출처 표기 예시는 다음과 같습니다:
+## 역할 및 책임
+- 상담사가 환자에게 설명할 수 있도록 명확하고 이해하기 쉬운 정보 제공
+- 검색된 문서의 내용을 바탕으로 정확하고 신뢰할 수 있는 답변 작성
+- 한국어로 답변하며, 전문적이면서도 친근한 톤 유지
 
-참고 자료:
-- 출처: '대사증후군 관리 가이드'  
-  경로: '생활습관 개선 > 식이요법'
+## 답변 형식 가이드라인
+1. **구조화된 답변**: 주제별로 명확히 구분하여 작성
+2. **가독성 최적화**: 문단, 줄바꿈, 번호/글머리 기호 적극 활용
+3. **핵심 정보 강조**: 중요한 내용은 **굵게** 표시
+4. **단계별 설명**: 복잡한 내용은 순서대로 단계별 설명
+5. **실용적 조언**: 환자가 실제로 실천할 수 있는 구체적 방법 제시
 
-- 출처: '환자 교육자료'  
-  경로: '운동 가이드라인'
+## 의료 정보 관련 주의사항
+⚠️ **중요**: 제공되는 정보는 일반적인 교육 목적이며, 개별 환자의 구체적인 의료 상담이나 진단을 대체할 수 없습니다. 환자별 맞춤 치료나 약물 조절은 반드시 담당 의료진과 상담하시기 바랍니다.
+
+## 출처 표기 규칙
+답변 마지막에는 반드시 다음 형식으로 참고 자료를 명시해야 합니다:
+
+📚 **참고 자료**
+- 출처: '[문서명]'
+  경로: '[상세 경로]'
 """
-        user_message = """이전 대화:
+
+    if conversation_history:
+        user_message = """## 이전 대화 내용
 {conversation_history}
 
-현재 질문:
+## 현재 질문
 {question}
 
-검색된 문서:
+## 검색된 관련 문서
 {documents}
 
-위의 이전 대화 내용과 '검색된 문서'를 모두 참고하여 현재 질문에 답변하세요.
-답변 마지막에는 참고한 '출처'를 명시해야 합니다."""
+위의 이전 대화 맥락과 검색된 문서를 모두 참고하여, 현재 질문에 대한 체계적이고 실용적인 답변을 작성해주세요."""
     else:
-        system_message = """당신은 대사증후군 상담사를 지원하는 도우미입니다.
-답변은 한국어로 작성하며, 가독성이 좋도록 문단과 줄바꿈, 목록 등을 적극적으로 활용하세요.
-상담사가 환자에게 설명할 수 있도록 명확하고 이해하기 쉽게 작성하세요.
-제공된 '검색된 문서'의 '출처'를 바탕으로 답변을 생성해야 합니다.
-답변의 마지막에는 어떤 문서와 목차('출처' 정보)를 참고했는지 반드시 명시해야 합니다. 예:
-
-답변의 마지막에는 참고한 문서와 목차('출처' 정보)를 반드시 명시해야 합니다. 
-출처 표기 예시는 다음과 같습니다:
-
-참고 자료:
-- 출처: '대사증후군 관리 가이드'  
-  경로: '생활습관 개선 > 식이요법'
-
-- 출처: '환자 교육자료'  
-  경로: '운동 가이드라인'
-"""
-        user_message = """'검색된 문서'의 '출처'와 '내용'을 참고하여 질문에 답변하세요.
-답변 마지막에는 참고한 '출처'를 반드시 명시해야 합니다.
-
-질문:
+        user_message = """## 질문
 {question}
 
-검색된 문서:
+## 검색된 관련 문서
 {documents}
-"""
+
+위의 검색된 문서 내용을 바탕으로 질문에 대한 체계적이고 실용적인 답변을 작성해주세요."""
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -229,57 +220,65 @@ def n_generate_rag(state: RAGState) -> RAGState:
             ("user", user_message),
         ]
     )
+
     chain = prompt | llm
     invoke_params = {
         "question": state["question"],
         "documents": state.get("context", ""),
     }
+
     if conversation_history:
         invoke_params["conversation_history"] = conversation_history
+
     resp = chain.invoke(invoke_params)
     return {"answer": resp.content}
 
 
 def n_generate_direct(state: RAGState) -> RAGState:
-    """컨텍스트 없이 직접 답변을 생성합니다."""
+    """개선된 직접 답변 생성 함수"""
 
-    # 대화 히스토리 포함한 프롬프트 구성
     conversation_history = state.get("conversation_history", "")
 
+    # 공통 시스템 메시지
+    system_message = """당신은 전문적이고 신뢰할 수 있는 AI 어시스턴트입니다.
+
+## 답변 원칙
+- 한국어로 명확하고 이해하기 쉽게 답변
+- 구조화된 형식으로 정보 제공
+- 전문적이면서도 친근한 톤 유지
+
+## 답변 형식 가이드라인
+1. **명확한 구조**: 주제별로 체계적 구성
+2. **가독성**: 문단, 목록, 강조 표시 활용
+3. **실용성**: 구체적이고 실행 가능한 정보 제공
+
+## 의료/건강 관련 정보 주의사항
+⚠️ 건강 관련 질문의 경우, 상담을 보조하는 참고 정보만 제공하며 개별적인 의료 상담은 전문 의료진과 상담하도록 안내합니다."""
+
     if conversation_history:
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    """당신은 AI 어시스턴트입니다.
-이전 대화 내용을 참고하여 문맥에 맞는 답변을 제공하세요.
-답변은 한국어로 작성하며, 명확하고 이해하기 쉽게 작성하세요.""",
-                ),
-                (
-                    "user",
-                    """이전 대화:
+        user_message = """## 이전 대화 내용
 {conversation_history}
 
-현재 질문:
+## 현재 질문
 {question}
 
-위의 이전 대화 내용을 참고하여 현재 질문에 답변하세요.""",
-                ),
-            ]
-        )
-
-        resp = (prompt | llm).invoke(
-            {
-                "conversation_history": conversation_history,
-                "question": state["question"],
-            }
-        )
+이전 대화 맥락을 고려하여 현재 질문에 대한 적절한 답변을 제공해주세요."""
     else:
-        prompt = ChatPromptTemplate.from_template(
-            "질문: {question}\n위 질문에 대해 답변하시오."
-        )
-        resp = (prompt | llm).invoke({"question": state["question"]})
+        user_message = """## 질문
+{question}
 
+위 질문에 대해 체계적이고 도움이 되는 답변을 제공해주세요."""
+
+    prompt = ChatPromptTemplate.from_messages(
+        [("system", system_message), ("user", user_message)]
+    )
+
+    invoke_params = {"question": state["question"]}
+
+    if conversation_history:
+        invoke_params["conversation_history"] = conversation_history
+
+    resp = (prompt | llm).invoke(invoke_params)
     return {"answer": resp.content}
 
 
